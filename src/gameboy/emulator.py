@@ -2,10 +2,12 @@
 Main Game Boy Emulator class
 Coordinates CPU, memory, and other components.
 """
+import pygame
 
 from .cpu import CPU
 from .memory import Memory
 from .ppu import PPU
+from .apu import APU
 
 
 class GameBoy:
@@ -14,7 +16,12 @@ class GameBoy:
         self.memory = Memory()
         self.cpu = CPU(self.memory, debug)
         self.ppu = PPU(self.memory, debug)
-        self.running = False
+        self.apu = APU(self.memory, debug)
+        
+        # Link APU to memory for register access
+        self.memory.apu = self.apu
+        
+        self.running = True  # エミュレータを実行状態に設定
         
     def load_rom(self, rom_path):
         """Load ROM file into memory"""
@@ -40,30 +47,71 @@ class GameBoy:
             raise FileNotFoundError(f"ROM file not found: {rom_path}")
     
     def run(self):
-        """Main emulation loop"""
-        self.running = True
+        """Run the emulator main loop"""
+        cycle_count = 0
+        frame_count = 0
         
-        if self.debug:
-            print("Starting Game Boy emulator...")
+        print("Initializing PPU rendering...")
+        # Initialize PPU rendering
+        try:
+            render_result = self.ppu.render_frame()
+            print(f"Initial render result: {render_result}")
+            if not render_result:
+                print("Initial render failed, exiting")
+                return
+        except Exception as e:
+            print(f"Error during initial render: {e}")
+            import traceback
+            traceback.print_exc()
+            return
         
+        print("Starting main emulation loop...")
         try:
             while self.running:
-                # Check if we should continue (pygame window not closed)
-                if not self.step():
-                    break
+                # Execute one CPU instruction
+                cycles = self.step()
+                cycle_count += cycles
                 
-                # Simple exit condition for now
-                if self.cpu.cycles > 10000000:  # Increased for longer testing
-                    if self.debug:
-                        print("Emulation stopped after 10M cycles")
-                    break
-                    
+                # Debug output for CPU cycles and state
+                if self.debug and cycle_count % 20000000 == 0:
+                    ly = self.memory.read_byte(0xFF44)
+                    lcdc = self.memory.read_byte(0xFF40)
+                    stat = self.memory.read_byte(0xFF41)
+                    print(f"Cycles: {cycle_count}, PC: 0x{self.cpu.pc:04X}, LY: {ly}, LCDC: 0x{lcdc:02X}, STAT: 0x{stat:02X}")
+                
+                # CPU cycle progress tracking - less frequent for speed
+                if cycle_count % 500000 == 0:  # Every 500k cycles for speed
+                    ly = self.memory.read_byte(0xFF44)
+                    lcdc = self.memory.read_byte(0xFF40)
+                    stat = self.memory.read_byte(0xFF41)
+                    print(f"CPU Progress: {cycle_count} cycles, PC: 0x{self.cpu.pc:04X}, LY: {ly}, LCDC: 0x{lcdc:02X}")
+                    # Show CPU registers to debug the waiting loop at 0x0213-0x0215
+                    if 0x0210 <= self.cpu.pc <= 0x0220:
+                        print(f"  Registers: A=0x{self.cpu.a:02X}, B=0x{self.cpu.b:02X}, C=0x{self.cpu.c:02X}, Flags: Z={self.cpu.flag_z}, N={self.cpu.flag_n}, H={self.cpu.flag_h}, C={self.cpu.flag_c}")
+                
+                # Render frames more frequently for maximum speed (every 10k cycles)
+                if cycle_count % 10000 == 0:
+                    frame_count += 1
+                    # Render frame and check if window should close
+                    try:
+                        if not self.ppu.render_frame():
+                            print("Render returned False, stopping...")
+                            break
+                    except Exception as e:
+                        print(f"Error during render: {e}")
+                        import traceback
+                        traceback.print_exc()
+                        break
+                        
         except KeyboardInterrupt:
-            if self.debug:
-                print("\nEmulation stopped by user")
+            print(f"\nEmulation stopped. Total cycles: {cycle_count}, Frames: {frame_count}")
+        except Exception as e:
+            print(f"Error in main loop: {e}")
+            import traceback
+            traceback.print_exc()
         
-        if self.debug:
-            print(f"Final cycles: {self.cpu.cycles}")
+        print("Emulation loop ended, cleaning up...")
+        pygame.quit()
     
     def step(self):
         """Execute one emulation step"""
@@ -74,21 +122,16 @@ class GameBoy:
         # Update PPU with CPU cycles
         self.ppu.step(cpu_cycles)
         
+        # Update APU with CPU cycles (reduced frequency for performance)
+        if cpu_cycles % 10 == 0:  # Update APU less frequently
+            self.apu.step(cpu_cycles)
+        
         # Update memory registers with PPU state (direct write to avoid recursion)
         self.memory.io[0x44] = self.ppu.get_ly()  # LY register
         stat = self.ppu.get_stat() 
         self.memory.io[0x41] = stat  # STAT register
         
-        # Check if PPU wants to continue (pygame window not closed)
-        # Render when V-Blank starts (scanline 144, mode 1)
-        if self.ppu.scan_line == 144 and self.ppu.mode == 1:
-            if not self.ppu.render_frame():
-                return False
-        
-        if self.debug and self.cpu.cycles % 100000 == 0:
-            print(f"Cycles: {self.cpu.cycles}, PC: 0x{self.cpu.pc:04X}, LY: {self.ppu.scan_line}")
-        
-        return True
+        return cpu_cycles
     
     def stop(self):
         """Stop the emulator"""

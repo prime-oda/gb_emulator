@@ -17,14 +17,21 @@ def main():
     args = parser.parse_args()
     
     try:
+        print("Starting Game Boy emulator...")
         gameboy = GameBoy(debug=args.debug)
+        print("Loading ROM...")
         gameboy.load_rom(args.rom_file)
+        print("Starting emulation...")
         gameboy.run()
+        print("Emulation finished.")
     except FileNotFoundError:
         print(f"Error: ROM file '{args.rom_file}' not found.")
         sys.exit(1)
     except Exception as e:
+        import traceback
         print(f"Error: {e}")
+        print("Full traceback:")
+        traceback.print_exc()
         sys.exit(1)
 
 

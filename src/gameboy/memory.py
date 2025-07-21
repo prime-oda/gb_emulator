@@ -7,6 +7,7 @@ class Memory:
     def __init__(self):
         # Game Boy memory map
         self.rom = [0] * 0x8000      # ROM banks 0-1 (32KB)
+        self.apu = None              # Will be set by emulator
         self.vram = [0] * 0x2000     # Video RAM (8KB)
         self.eram = [0] * 0x2000     # External RAM (8KB)
         self.wram = [0] * 0x2000     # Work RAM (8KB)
@@ -113,6 +114,8 @@ class Memory:
                 return self.io[address - 0xFF00]
             elif address == 0xFF00:  # Joypad register
                 return self.read_joypad()
+            elif 0xFF10 <= address <= 0xFF3F and self.apu:  # Audio registers
+                return self.apu.read_register(address)
             else:
                 return self.io[address - 0xFF00]
         elif address < 0xFFFF:
@@ -150,7 +153,13 @@ class Memory:
             # Banking mode select
             self.banking_mode = value & 0x01
         elif address < 0xA000:
-            # Video RAM
+            # Video RAM - detect important text writes only
+            if address >= 0x9800 and value != 0x20:  # Background map area, non-space
+                if not hasattr(self, '_text_found'):
+                    self._text_found = True
+                    row = (address - 0x9800) // 32
+                    col = (address - 0x9800) % 32
+                    print(f"🎉 FIRST TEXT FOUND: row={row}, col={col}, char=0x{value:02X}")
             self.vram[address - 0x8000] = value
         elif address < 0xC000:
             # External RAM
@@ -172,6 +181,8 @@ class Memory:
             # I/O registers
             if address == 0xFF00:  # Joypad register
                 self.write_joypad(value)
+            elif 0xFF10 <= address <= 0xFF3F and self.apu:  # Audio registers
+                self.apu.write_register(address, value)
             else:
                 self.io[address - 0xFF00] = value
         elif address < 0xFFFF:
@@ -217,6 +228,13 @@ class Memory:
                 
             # Calculate number of ROM banks (16KB each)
             self.rom_banks = max(2, (len(rom_data) + 0x3FFF) // 0x4000)
+            
+            # Initialize I/O registers for game ROM (post-boot state)
+            self.io[0x40] = 0x91  # LCDC: LCD on, BG on, sprites on
+            self.io[0x47] = 0xE4  # BGP: Background palette (proper grayscale)
+            self.io[0x48] = 0xFF  # OBP0: Object palette 0
+            self.io[0x49] = 0xFF  # OBP1: Object palette 1
+            self.io[0x26] = 0x80  # NR52: Sound on
             
             # Game ROM starts at 0x0100
             self.is_boot_rom = False
@@ -268,3 +286,24 @@ class Memory:
         """Simulate direction release"""
         if 0 <= direction <= 3:
             self.joypad_directions |= (1 << direction)  # Set bit (released)
+    
+    def read(self, address):
+        """Read a byte from the specified memory address."""
+        if 0x0000 <= address <= 0x7FFF:  # ROM
+            return self.rom[address]
+        elif 0x8000 <= address <= 0x9FFF:  # VRAM
+            return self.vram[address - 0x8000]
+        elif 0xA000 <= address <= 0xBFFF:  # External RAM
+            return self.eram[address - 0xA000]
+        elif 0xC000 <= address <= 0xDFFF:  # Work RAM
+            return self.wram[address - 0xC000]
+        elif 0xFE00 <= address <= 0xFE9F:  # OAM
+            return self.oam[address - 0xFE00]
+        elif 0xFF00 <= address <= 0xFF7F:  # I/O Registers
+            return self.io[address - 0xFF00]
+        elif 0xFF80 <= address <= 0xFFFE:  # High RAM
+            return self.hram[address - 0xFF80]
+        elif address == 0xFFFF:  # Interrupt Enable Register
+            return self.ie
+        else:
+            raise ValueError(f"Invalid memory read at address: 0x{address:04X}")

@@ -45,19 +45,19 @@ class PPU:
         self.scanline_cycles = 456  # Total cycles per scanline
         self.v_blank_lines = 10   # V-Blank scanlines
 
-        # Palette colors (from light to dark)
+        # Palette colors (Game Boy standard: 0=lightest, 3=darkest)
         self.palette = [
-            (155, 188, 15),   # Light green
-            (139, 172, 15),   # Medium-light green
-            (48, 98, 48),     # Medium-dark green
-            (15, 56, 15)      # Dark green
+            (224, 248, 208),  # Color 0: Lightest green (white-ish)
+            (136, 192, 112),  # Color 1: Light green  
+            (52, 104, 86),    # Color 2: Dark green
+            (8, 24, 32)       # Color 3: Darkest green (black-ish)
         ]
 
         # Frame buffer
         self.frame_buffer = numpy.zeros((self.screen_height, self.screen_width), dtype=numpy.uint8)
 
         # Frame skip settings for performance control
-        self.frame_skip_rate = 1  # Skip every N frames (1 = no skip, 2 = skip every other frame)
+        self.frame_skip_rate = 0  # No frame skipping for maximum speed
         self.frame_counter = 0
         
         # Performance monitoring
@@ -72,27 +72,54 @@ class PPU:
 
         # Initialize pygame
         import os
-        os.environ['SDL_VIDEO_WINDOW_POS'] = '100,100'  # Position window
-
+        # macOS specific environment variables for better window handling
+        os.environ['SDL_VIDEO_WINDOW_POS'] = '200,200'  # Position window away from dock
+        os.environ['SDL_VIDEO_CENTERED'] = '1'  # Center the window
+        os.environ['SDL_VIDEODRIVER'] = 'cocoa'  # Force Cocoa driver on macOS
+        
         pygame.init()
+        pygame.display.init()
+        
+        # Create display with proper flags for macOS visibility
+        display_flags = pygame.SHOWN | pygame.RESIZABLE
         self.screen = pygame.display.set_mode((
             self.screen_width * self.scale,
             self.screen_height * self.scale
-        ))
-        pygame.display.set_caption("Game Boy Emulator - big2small.gb")
+        ), display_flags)
+        
+        pygame.display.set_caption("🎮 Game Boy Emulator - CPU Instructions Test")
+        
+        # Set window icon to make it more visible in dock
+        try:
+            icon_surface = pygame.Surface((32, 32))
+            icon_surface.fill((0, 100, 0))  # Dark green
+            pygame.display.set_icon(icon_surface)
+        except:
+            pass
+        
+        # Clear screen to distinctive Game Boy green
+        self.screen.fill((136, 192, 112))  # Light green like Game Boy
+        pygame.display.flip()
+        
+        # Force immediate screen refresh
+        pygame.event.pump()  # Process events to ensure window appears
         
         # Initialize font for FPS display
         pygame.font.init()
         self.font = pygame.font.Font(None, 24)  # Small font for FPS display
 
-        # Force window to front on macOS
+        print(f"🎮 Pygame window created: {self.screen_width * self.scale}x{self.screen_height * self.scale}")
+        print("📺 Look for the Game Boy Emulator window - it should be visible now!")
+
+        # Simplified window activation for macOS
         try:
             import subprocess
-            subprocess.run(['osascript', '-e', 
-                          'tell application "Python" to activate'], 
-                         capture_output=True, timeout=1)
-        except:
-            pass
+            # Just try to activate without timeout issues
+            subprocess.Popen(['osascript', '-e', 
+                            'tell application "System Events" to keystroke tab using {command down}'])
+            print("🔄 Window activation command sent")
+        except Exception as e:
+            print(f"⚠️ Window activation failed (this is usually OK): {e}")
 
         self.clock = pygame.time.Clock()
 
@@ -103,7 +130,8 @@ class PPU:
         """Update PPU state based on CPU cycles"""
         self.cycles += cpu_cycles
 
-        # Remove frequent step logging to improve performance
+#        if self.debug:
+#            self.logger.info(f"Step: scan_line={self.scan_line}, mode={self.mode}, cycles={self.cycles}")
 
         if self.scan_line < 144:  # Visible scanlines
             if self.mode == 2 and self.cycles >= self.mode_2_cycles:
@@ -153,11 +181,20 @@ class PPU:
             return
 
         # Clear scanline buffer with background color
-        self.frame_buffer[self.scan_line].fill(0)  # Use color 0 as background
+        # Use color 0 (lightest) as default background (Game Boy standard)
+        self.frame_buffer[self.scan_line].fill(0)
 
         # Render background if enabled
         if lcdc & 0x01:
             self.render_background_scanline()
+        else:
+            # Clear scanline to darkest color when BG is disabled to see difference
+            for x in range(self.screen_width):
+                self.frame_buffer[self.scan_line][x] = 3
+
+        # Render window if enabled
+        if lcdc & 0x20:
+            self.render_window_scanline()
 
         # Render sprites if enabled
         if lcdc & 0x02:
@@ -168,6 +205,33 @@ class PPU:
         # Get scroll registers
         scy = self.memory.read_byte(0xFF42)  # Scroll Y
         scx = self.memory.read_byte(0xFF43)  # Scroll X
+
+        # Debug output every 5 seconds for longer observation
+        debug_should_run = (self.scan_line == 0 and 
+                           (not hasattr(self, 'bg_debug_counter') or 
+                            getattr(self, 'bg_debug_counter', 0) % 300 == 0))  # Every 5 seconds
+        
+        if debug_should_run:
+            self.bg_debug_counter = getattr(self, 'bg_debug_counter', 0) + 1
+            lcdc = self.memory.read_byte(0xFF40)
+            bgp = self.memory.read_byte(0xFF47)
+            print(f"PPU: LCDC=0x{lcdc:02X}, BGP=0x{bgp:02X}, SCX={scx}, SCY={scy}")
+            
+            # Check background map first few positions for actual text
+            bg_map_base = 0x9C00 if (lcdc & 0x08) else 0x9800
+            first_map_row = [self.memory.read_byte(bg_map_base + i) for i in range(16)]
+            print(f"BG map first 16: {' '.join(f'{b:02X}' for b in first_map_row)}")
+            
+            # Check several key tiles for font data
+            tiles_to_check = [0x20, 0x21, 0x41, 0x43, 0x50, 0x55]  # space, !, A, C, P, U
+            for tile_idx in tiles_to_check:
+                tile_data = [self.memory.read_byte(0x8000 + tile_idx * 16 + j) for j in range(8)]
+                has_data = any(b != 0 for b in tile_data)
+                if has_data:
+                    print(f"  Tile 0x{tile_idx:02X}: {' '.join(f'{b:02X}' for b in tile_data[:4])}...")
+                    break  # Show first tile with data
+            if not any(any(self.memory.read_byte(0x8000 + t * 16 + j) != 0 for j in range(8)) for t in tiles_to_check):
+                print("  No font data found in common tiles")
 
         # Calculate which tile row we're on
         y = (self.scan_line + scy) & 0xFF
@@ -196,13 +260,13 @@ class PPU:
 
             # Calculate tile data address
             if tile_data_base == 0x8000:
-                # Unsigned indexing
+                # Unsigned indexing (0x8000-0x8FFF)
                 tile_addr = tile_data_base + (tile_index * 16) + (tile_line * 2)
             else:
-                # Signed indexing
+                # Signed indexing (0x8800-0x97FF, with 0x9000 as center)
                 if tile_index > 127:
-                    tile_index = tile_index - 256
-                tile_addr = tile_data_base + (tile_index * 16) + (tile_line * 2)
+                    tile_index = tile_index - 256  # Convert to signed
+                tile_addr = 0x9000 + (tile_index * 16) + (tile_line * 2)
 
             # Get tile data (2 bytes per line)
             tile_data_low = self.memory.read_byte(tile_addr)
@@ -216,10 +280,82 @@ class PPU:
 
             # Apply background palette
             bgp = self.memory.read_byte(0xFF47)
+            
+            # If BGP is 0 (all colors map to 0), use default Game Boy palette
+            if bgp == 0x00:
+                bgp = 0xFC  # Default: 0→0, 1→1, 2→2, 3→3 (normal mapping)
+            
             palette_color = (bgp >> (color_index * 2)) & 0x03
 
             # Store in frame buffer
             self.frame_buffer[self.scan_line][x] = palette_color
+
+    def render_window_scanline(self):
+        """Render window layer for the current scanline"""
+        # Get window position registers
+        wy = self.memory.read_byte(0xFF4A)  # Window Y position
+        wx = self.memory.read_byte(0xFF4B)  # Window X position
+
+        # Window X is offset by 7 pixels
+        wx = wx - 7
+
+        # Check if window should be rendered on this scanline
+        if self.scan_line < wy or wx >= self.screen_width:
+            return
+
+        # Calculate window-relative scanline
+        window_line = self.scan_line - wy
+        tile_row = window_line // 8
+        tile_line = window_line % 8
+
+        # Get window tile map base address (bit 6 of LCDC)
+        lcdc = self.memory.read_byte(0xFF40)
+        window_map_base = 0x9C00 if (lcdc & 0x40) else 0x9800
+
+        # Get tile data base address (bit 4 of LCDC)
+        tile_data_base = 0x8000 if (lcdc & 0x10) else 0x8800
+
+        # Render window pixels
+        for screen_x in range(max(0, wx), self.screen_width):
+            window_x = screen_x - wx
+            tile_col = window_x // 8
+            tile_pixel = window_x % 8
+
+            # Get tile index from window map
+            window_map_addr = window_map_base + (tile_row * 32) + tile_col
+            tile_index = self.memory.read_byte(window_map_addr)
+
+            # Calculate tile data address
+            if tile_data_base == 0x8000:
+                # Unsigned indexing (0x8000-0x8FFF)
+                tile_addr = tile_data_base + (tile_index * 16) + (tile_line * 2)
+            else:
+                # Signed indexing (0x8800-0x97FF, with 0x9000 as center)
+                if tile_index > 127:
+                    tile_index = tile_index - 256  # Convert to signed
+                tile_addr = 0x9000 + (tile_index * 16) + (tile_line * 2)
+
+            # Get tile data (2 bytes per line)
+            tile_data_low = self.memory.read_byte(tile_addr)
+            tile_data_high = self.memory.read_byte(tile_addr + 1)
+
+            # Extract pixel color (2 bits)
+            bit_pos = 7 - tile_pixel
+            color_bit_0 = (tile_data_low >> bit_pos) & 1
+            color_bit_1 = (tile_data_high >> bit_pos) & 1
+            color_index = (color_bit_1 << 1) | color_bit_0
+
+            # Apply background palette (window uses same palette as background)
+            bgp = self.memory.read_byte(0xFF47)
+            
+            # If BGP is 0 (all colors map to 0), use default Game Boy palette
+            if bgp == 0x00:
+                bgp = 0xFC  # Default: 0→0, 1→1, 2→2, 3→3 (normal mapping)
+            
+            palette_color = (bgp >> (color_index * 2)) & 0x03
+
+            # Store in frame buffer (window overwrites background)
+            self.frame_buffer[self.scan_line][screen_x] = palette_color
 
     def render_frame(self):
         """Render the complete frame to the screen with adaptive frame skipping"""
@@ -246,15 +382,27 @@ class PPU:
         should_skip = (self.frame_counter % self.frame_skip_rate) != 0
         
         if should_skip:
-            # Still handle events even when skipping frames
+            # Still handle events even when skipping frames - improved event processing
+            events_processed = 0
             for event in pygame.event.get():
+                events_processed += 1
                 if event.type == pygame.QUIT:
+                    print("🛑 Window close requested (during frame skip)")
                     pygame.quit()
                     return False
                 elif event.type == pygame.KEYDOWN:
+                    print(f"⌨️ Key pressed during skip: {pygame.key.name(event.key)}")
+                    if event.key == pygame.K_ESCAPE:
+                        print("🛑 ESC pressed during skip")
+                        pygame.quit()
+                        return False
                     self.handle_keydown(event.key)
                 elif event.type == pygame.KEYUP:
+                    print(f"⌨️ Key released during skip: {pygame.key.name(event.key)}")
                     self.handle_keyup(event.key)
+            
+            # Ensure events are processed even during frame skip
+            pygame.event.pump()
             return True
         
         # Render the frame
@@ -264,39 +412,69 @@ class PPU:
         if not hasattr(self, 'frame_array'):
             self.frame_array = numpy.zeros((self.screen_height, self.screen_width, 3), dtype=numpy.uint8)
 
-        # Use numpy vectorized operations for better performance
-        palette_array = numpy.array(self.palette)
-        self.frame_array = palette_array[active_buffer]
-
-        # Transpose the frame_array to match pygame's expected orientation
-        frame_array_transposed = numpy.transpose(self.frame_array, (1, 0, 2))
-
-        # Create a surface from the numpy array
-        frame_surface = pygame.surfarray.make_surface(frame_array_transposed)
-
-        # Scale the surface and blit to the screen
+        # High-performance surface creation and scaling
+        palette_array = numpy.array(self.palette, dtype=numpy.uint8)
+        
+        # Clamp color indices to valid range
+        safe_buffer = numpy.clip(active_buffer, 0, len(self.palette)-1)
+        
+        # Map colors using numpy indexing (much faster than loops)
+        rgb_buffer = palette_array[safe_buffer]
+        
+        # Create surface from array (width, height swapped for pygame)
+        frame_surface = pygame.surfarray.make_surface(rgb_buffer.swapaxes(0, 1))
+        
+        # Scale up efficiently 
         scaled_surface = pygame.transform.scale(
-            frame_surface, (self.screen_width * self.scale, self.screen_height * self.scale)
+            frame_surface, 
+            (self.screen_width * self.scale, self.screen_height * self.scale)
         )
+        
+        # Blit to screen
         self.screen.blit(scaled_surface, (0, 0))
         
-        # Draw FPS information
+        # Re-enable FPS display for performance monitoring
         self._draw_fps_display(current_time)
 
+        # Force screen update with both flip and update
         pygame.display.flip()  # Use flip for better performance
+        pygame.display.update()  # Additional update call for macOS
 
-        # Handle pygame events
+        # Handle pygame events - improved event processing
+        events_processed = 0
         for event in pygame.event.get():
+            events_processed += 1
             if event.type == pygame.QUIT:
+                print("🛑 Window close requested")
                 pygame.quit()
                 return False
             elif event.type == pygame.KEYDOWN:
+                print(f"⌨️ Key pressed: {pygame.key.name(event.key)} (code: {event.key})")
+                if event.key == pygame.K_ESCAPE:  # ESC to close
+                    print("🛑 ESC pressed, closing")
+                    pygame.quit()
+                    return False
                 self.handle_keydown(event.key)
             elif event.type == pygame.KEYUP:
+                print(f"⌨️ Key released: {pygame.key.name(event.key)} (code: {event.key})")
                 self.handle_keyup(event.key)
+            elif event.type == pygame.ACTIVEEVENT:
+                print(f"🔄 Window activation event: {event}")
+            elif event.type == pygame.VIDEORESIZE:
+                print(f"📐 Window resize event: {event.size}")
+        
+        # Ensure pygame processes all events
+        pygame.event.pump()
+        
+        # Debug: Print if no events were processed occasionally
+        if not hasattr(self, '_event_debug_counter'):
+            self._event_debug_counter = 0
+        self._event_debug_counter += 1
+        if self._event_debug_counter % 300 == 0:  # Every ~5 seconds
+            print(f"🔧 Event processing: {events_processed} events this frame")
 
-        # Frame rate control
-        self.clock.tick(self.target_fps)
+        # Maximum speed mode - no frame rate limit for testing
+        # self.clock.tick(60)  # Disabled for max speed
         
         self.last_frame_time = current_time
         return True
@@ -309,44 +487,147 @@ class PPU:
             self.memory.write_byte(0xFF0F, if_reg | 0x01)
     
     def handle_keydown(self, key):
-        """Handle key press events"""
-        # Map pygame keys to Game Boy buttons
+        """Handle key press events - improved with debug output"""
+        print(f"🎮 Processing key press: {pygame.key.name(key)} (code: {key})")
+        
+        # Test sound when pressing keys
+        if key == pygame.K_t:  # T key for test sound
+            print("🔊 Testing sound...")
+            self.test_sound()
+            
+        # Map pygame keys to Game Boy buttons with debug output
+        button_pressed = None
         if key == pygame.K_z:  # A button
-            self.memory.press_button(0)  # A = bit 0
+            button_pressed = "A"
+            if hasattr(self.memory, 'press_button'):
+                self.memory.press_button(0)  # A = bit 0
+            else:
+                print("⚠️ Memory doesn't have press_button method")
         elif key == pygame.K_x:  # B button
-            self.memory.press_button(1)  # B = bit 1
-        elif key == pygame.K_RSHIFT:  # Select
-            self.memory.press_button(2)  # Select = bit 2
-        elif key == pygame.K_RETURN:  # Start
-            self.memory.press_button(3)  # Start = bit 3
+            button_pressed = "B"
+            if hasattr(self.memory, 'press_button'):
+                self.memory.press_button(1)  # B = bit 1
+            else:
+                print("⚠️ Memory doesn't have press_button method")
+        elif key == pygame.K_RSHIFT or key == pygame.K_LSHIFT:  # Select
+            button_pressed = "SELECT"
+            if hasattr(self.memory, 'press_button'):
+                self.memory.press_button(2)  # Select = bit 2
+            else:
+                print("⚠️ Memory doesn't have press_button method")
+        elif key == pygame.K_RETURN or key == pygame.K_KP_ENTER:  # Start
+            button_pressed = "START"
+            if hasattr(self.memory, 'press_button'):
+                self.memory.press_button(3)  # Start = bit 3
+            else:
+                print("⚠️ Memory doesn't have press_button method")
         elif key == pygame.K_RIGHT:  # Right
-            self.memory.press_direction(0)  # Right = bit 0
+            button_pressed = "RIGHT"
+            if hasattr(self.memory, 'press_direction'):
+                self.memory.press_direction(0)  # Right = bit 0
+            else:
+                print("⚠️ Memory doesn't have press_direction method")
         elif key == pygame.K_LEFT:  # Left
-            self.memory.press_direction(1)  # Left = bit 1
+            button_pressed = "LEFT"
+            if hasattr(self.memory, 'press_direction'):
+                self.memory.press_direction(1)  # Left = bit 1
+            else:
+                print("⚠️ Memory doesn't have press_direction method")
         elif key == pygame.K_UP:  # Up
-            self.memory.press_direction(2)  # Up = bit 2
+            button_pressed = "UP"
+            if hasattr(self.memory, 'press_direction'):
+                self.memory.press_direction(2)  # Up = bit 2
+            else:
+                print("⚠️ Memory doesn't have press_direction method")
         elif key == pygame.K_DOWN:  # Down
-            self.memory.press_direction(3)  # Down = bit 3
+            button_pressed = "DOWN"
+            if hasattr(self.memory, 'press_direction'):
+                self.memory.press_direction(3)  # Down = bit 3
+            else:
+                print("⚠️ Memory doesn't have press_direction method")
+        
+        if button_pressed:
+            print(f"✅ Game Boy button pressed: {button_pressed}")
+        else:
+            print(f"🔧 Unmapped key: {pygame.key.name(key)}")
+            print("🎮 Controls: Z=A, X=B, Shift=Select, Enter=Start, Arrow Keys=D-Pad, T=Test Sound, ESC=Quit")
     
     def handle_keyup(self, key):
-        """Handle key release events"""
-        # Map pygame keys to Game Boy buttons
+        """Handle key release events - improved with debug output"""
+        print(f"🎮 Processing key release: {pygame.key.name(key)} (code: {key})")
+        
+        # Map pygame keys to Game Boy buttons with debug output
+        button_released = None
         if key == pygame.K_z:  # A button
-            self.memory.release_button(0)
+            button_released = "A"
+            if hasattr(self.memory, 'release_button'):
+                self.memory.release_button(0)
+            else:
+                print("⚠️ Memory doesn't have release_button method")
         elif key == pygame.K_x:  # B button
-            self.memory.release_button(1)
-        elif key == pygame.K_RSHIFT:  # Select
-            self.memory.release_button(2)
-        elif key == pygame.K_RETURN:  # Start
-            self.memory.release_button(3)
+            button_released = "B"
+            if hasattr(self.memory, 'release_button'):
+                self.memory.release_button(1)
+            else:
+                print("⚠️ Memory doesn't have release_button method")
+        elif key == pygame.K_RSHIFT or key == pygame.K_LSHIFT:  # Select
+            button_released = "SELECT"
+            if hasattr(self.memory, 'release_button'):
+                self.memory.release_button(2)
+            else:
+                print("⚠️ Memory doesn't have release_button method")
+        elif key == pygame.K_RETURN or key == pygame.K_KP_ENTER:  # Start
+            button_released = "START"
+            if hasattr(self.memory, 'release_button'):
+                self.memory.release_button(3)
+            else:
+                print("⚠️ Memory doesn't have release_button method")
         elif key == pygame.K_RIGHT:  # Right
-            self.memory.release_direction(0)
+            button_released = "RIGHT"
+            if hasattr(self.memory, 'release_direction'):
+                self.memory.release_direction(0)
+            else:
+                print("⚠️ Memory doesn't have release_direction method")
         elif key == pygame.K_LEFT:  # Left
-            self.memory.release_direction(1)
+            button_released = "LEFT"
+            if hasattr(self.memory, 'release_direction'):
+                self.memory.release_direction(1)
+            else:
+                print("⚠️ Memory doesn't have release_direction method")
         elif key == pygame.K_UP:  # Up
-            self.memory.release_direction(2)
+            button_released = "UP"
+            if hasattr(self.memory, 'release_direction'):
+                self.memory.release_direction(2)
+            else:
+                print("⚠️ Memory doesn't have release_direction method")
         elif key == pygame.K_DOWN:  # Down
-            self.memory.release_direction(3)
+            button_released = "DOWN"
+            if hasattr(self.memory, 'release_direction'):
+                self.memory.release_direction(3)
+            else:
+                print("⚠️ Memory doesn't have release_direction method")
+        
+        if button_released:
+            print(f"✅ Game Boy button released: {button_released}")
+        else:
+            print(f"🔧 Unmapped key release: {pygame.key.name(key)}")
+    
+    def test_sound(self):
+        """Test sound by playing a tone"""
+        if hasattr(self.memory, 'apu') and self.memory.apu:
+            apu = self.memory.apu
+            print("Playing test sound...")
+            
+            # Enable sound system
+            apu.write_register(0xFF26, 0x80)  # Enable sound
+            apu.write_register(0xFF25, 0x11)  # Enable channel 1 to both speakers  
+            apu.write_register(0xFF24, 0x77)  # Set volume
+            
+            # Configure Channel 1 for test tone
+            apu.write_register(0xFF11, 0x80)  # Duty cycle 50%
+            apu.write_register(0xFF12, 0xF3)  # Volume = 15, envelope decrease
+            apu.write_register(0xFF13, 0x00)  # Frequency low byte (440Hz)
+            apu.write_register(0xFF14, 0x87)  # Frequency high, trigger
     
     def _draw_fps_display(self, current_time):
         """Draw FPS information on the screen"""
@@ -359,13 +640,13 @@ class PPU:
             self.last_fps_update = current_time
             self.frame_count_for_fps = 0
         
-        # Create FPS text
-        target_fps_text = f"Target: {self.target_fps:.0f} FPS"
-        current_fps_text = f"Actual: {self.current_fps:.1f} FPS"
+        # Create FPS text (adapted for max speed mode)
+        mode_text = "MAX SPEED MODE"
+        current_fps_text = f"FPS: {self.current_fps:.0f}"
         skip_rate_text = f"Skip: {self.frame_skip_rate}x"
         
         # Render text surfaces
-        target_surface = self.font.render(target_fps_text, True, (255, 255, 255))
+        mode_surface = self.font.render(mode_text, True, (255, 255, 0))  # Yellow for max speed
         current_surface = self.font.render(current_fps_text, True, (255, 255, 255))
         skip_surface = self.font.render(skip_rate_text, True, (255, 255, 255))
         
@@ -379,13 +660,13 @@ class PPU:
         
         # Draw text with black outline for better visibility
         positions = [
-            (screen_width - target_surface.get_width() - margin, screen_height - line_height * 3 - margin),
+            (screen_width - mode_surface.get_width() - margin, screen_height - line_height * 3 - margin),
             (screen_width - current_surface.get_width() - margin, screen_height - line_height * 2 - margin),
             (screen_width - skip_surface.get_width() - margin, screen_height - line_height - margin)
         ]
         
-        texts = [target_fps_text, current_fps_text, skip_rate_text]
-        surfaces = [target_surface, current_surface, skip_surface]
+        texts = [mode_text, current_fps_text, skip_rate_text]
+        surfaces = [mode_surface, current_surface, skip_surface]
         
         for i, (surface, (x, y)) in enumerate(zip(surfaces, positions)):
             # Draw black outline for better visibility

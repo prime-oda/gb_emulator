@@ -31,6 +31,9 @@ uv run python main.py roms/dmg_bootrom.bin --debug
 
 # ゲームROM実行
 uv run python main.py roms/big2small.gb --debug
+
+# テストROM実行
+uv run python main.py roms/test/roms/test/cpu_instrs.gb
 ```
 
 ### pipを使用
@@ -40,6 +43,9 @@ python main.py roms/dmg_bootrom.bin --debug
 
 # ゲームROM実行  
 python main.py roms/big2small.gb --debug
+
+# テストROM実行
+python main.py roms/test/roms/test/cpu_instrs.gb
 ```
 
 ## 開発状況
@@ -55,9 +61,11 @@ python main.py roms/big2small.gb --debug
 - [x] ゲームROM対応
 - [x] 拡張CPU命令セット
 - [x] スプライト描画システム
-- [ ] ウィンドウレイヤー
-- [ ] 音声処理 (APU)
-- [ ] 入力処理（ジョイパッド）
+- [x] 音声処理 (APU)
+- [x] 入力処理（ジョイパッド）
+- [x] ウィンドウレイヤー
+- [x] テストROM対応
+- [x] テキスト表示システム
 - [ ] セーブ機能
 
 ## 実装済み機能
@@ -73,10 +81,20 @@ python main.py roms/big2small.gb --debug
 ### PPU (Picture Processing Unit)
 - LCDタイミング制御
 - 背景タイル描画
+- **ウィンドウレイヤー**: テキスト表示とUI用の追加画面レイヤー
 - スクロール機能
 - パレット適用
 - 160x144ピクセル出力
 - **スプライト描画システム**: OAM対応、8x8/8x16サイズ、X/Y反転、優先度制御
+- **符号付きタイルインデックス**: 0x8800モードでの正確なタイルアドレス計算
+
+### APU (Audio Processing Unit)
+- **4チャンネル音声システム**: Square1（スイープ付き）、Square2、Wave、Noise
+- **音声レジスタ完全実装**: NR10-NR52対応
+- **マスター音量制御**: 左右独立音量調整
+- **チャンネルミキシング**: ステレオ出力対応
+- **エンベロープ制御**: 音量の時間変化
+- **44.1kHz出力**: 高品質音声再生
 
 ### グラフィック
 - Pygame統合
@@ -107,12 +125,19 @@ python main.py roms/big2small.gb --debug
 ### 対応ROM
 - **dmg_bootrom.bin**: Game Boyブートロム（256バイト）
 - **big2small.gb**: GPLライセンスのテストゲーム
+- **roms/test/**: Blarggのテストロム集（CPU命令、タイミングテスト）
 
 ### big2small.gb について
 - **開発者**: MDSteele
 - **入手先**: https://mdsteele.itch.io/big2small
 - **ライセンス**: GPL
 - **説明**: Game Boy用パズルゲーム、エミュレータテストに最適
+
+### Blarggテストロム について
+- **開発者**: Blargg (Shay Green)
+- **入手先**: https://gbdev.gg8.se/files/roms/blargg-gb-tests/
+- **説明**: CPU命令セットとタイミングの正確性をテストする包括的なテストスイート
+- **対応テスト**: cpu_instrs.gb、instr_timing.gb、mem_timing.gb
 
 ## 依存関係
 
@@ -140,7 +165,39 @@ uv run pytest
 uv run ruff check src/
 ```
 
-## 最新実装: スプライト描画システム
+## 最新実装: テキスト表示システム
+
+### 実装された機能
+- **ウィンドウレイヤー**: テキスト表示用の追加レンダリングレイヤー
+- **正確なタイルインデックス**: 符号付きインデックス（0x8800モード）の修正
+- **レンダリングパイプライン**: 背景 → ウィンドウ → スプライトの正しい描画順序
+- **テストROM対応**: BlarggのCPU命令テストで「cpu_instrs」タイトル表示
+
+### ウィンドウレイヤー機能
+- **位置制御**: WX（0xFF4B）、WY（0xFF4A）レジスタによる位置指定
+- **タイルマップ選択**: LCDC bit 6による0x9800/0x9C00切り替え
+- **背景より優先**: ウィンドウピクセルが背景を上書き
+- **テキスト表示**: ゲームやテストROMでのテキスト出力をサポート
+
+### 修正された技術的問題
+1. **符号付きタイルアドレス計算**:
+   ```python
+   # 修正前（間違い）
+   tile_addr = tile_data_base + (tile_index * 16) + (tile_line * 2)
+   
+   # 修正後（正しい）
+   tile_addr = 0x9000 + (tile_index * 16) + (tile_line * 2)
+   ```
+
+2. **ウィンドウレンダリング追加**:
+   ```python
+   # PPUレンダリングパイプライン
+   if lcdc & 0x01: self.render_background_scanline()
+   if lcdc & 0x20: self.render_window_scanline()    # 新規追加
+   if lcdc & 0x02: self.render_sprites_scanline()
+   ```
+
+## スプライト描画システム
 
 ### 実装された機能
 - **OAM（Object Attribute Memory）処理**: 0xFE00-0xFEA0領域から40個のスプライトデータを管理
@@ -174,7 +231,7 @@ uv run ruff check src/
 - **開発者**: MDSteele
 - **ライセンス**: GPL
 - **動作状況**: ✅ 完全動作
-- **機能確認**: グラフィック表示、スプライト描画、ジョイパッド入力、メモリバンク切り替え
+- **機能確認**: グラフィック表示、スプライト描画、ジョイパッド入力、メモリバンク切り替え、音声出力
 
 ### 操作方法
 - **十字キー**: 矢印キー（↑↓←→）
@@ -183,10 +240,27 @@ uv run ruff check src/
 - **スタート**: Enter キー
 - **セレクト**: Right Shift キー
 
+## テストROM検証状況
+
+### Blargg CPU Instructions Test (cpu_instrs.gb)
+- **状態**: ✅ テキスト表示修正完了
+- **確認済み機能**:
+  - ROM読み込みとヘッダー解析
+  - 「cpu_instrs」タイトルの画面表示
+  - ウィンドウレイヤーでのテキスト描画
+  - 符号付きタイルインデックスの正確な処理
+- **実行方法**: `uv run python main.py roms/test/roms/test/cpu_instrs.gb`
+
+### 検証済み技術要素
+1. **PPU完全実装**: 背景、ウィンドウ、スプライト全レイヤー
+2. **タイルシステム**: 符号付き/符号なしインデックス両対応
+3. **メモリマッピング**: VRAMタイルデータとタイルマップの正確な処理
+4. **LCD制御**: LCDC各ビットの適切な実装
+
 ## 今後の開発予定
 
-1. **ウィンドウレイヤー**: UI表示用の追加画面レイヤー
-2. **音声処理**: APU（Audio Processing Unit）実装
+1. **CPU命令テスト完全実行**: 個別テスト結果の確認
+2. **タイミングテスト対応**: より厳密なハードウェア互換性
 3. **追加ゲーム対応**: より多くのGame Boyタイトルのサポート
 4. **セーブ機能**: SRAM、RTCサポート
 5. **デバッガー**: ステップ実行、ブレークポイント
