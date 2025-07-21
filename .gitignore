@@ -1,0 +1,35 @@
+# Python cache files
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# macOS system files
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# IDE files
+.vscode/
+.idea/
+
+# Logs
+*.log
+
+# Test and debug files
+debug_*.py
+test_*.py
+*_test.py
+trace_*.py
+wait_for_*.py
+full_vram_*.py
+
+# ROM files (optional - uncomment if you don't want to track ROMs)
+# roms/
+
+# Python virtual environment
+venv/
+env/
+
+# UV lock file (project-specific)
+uv.lock
