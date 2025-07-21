@@ -269,6 +269,23 @@ class CPU:
             self.flag_n = False
             self.flag_h = True
             self.cycles += 8
+        elif opcode == 0x37:  # SWAP A - Swap upper and lower nibbles of A
+            self.a = ((self.a << 4) | (self.a >> 4)) & 0xFF
+            self.flag_z = (self.a == 0)
+            self.flag_n = False
+            self.flag_h = False
+            self.flag_c = False
+            self.cycles += 8
+        elif opcode == 0x77:  # BIT 6, A - Test bit 6 in A
+            self.flag_z = not bool(self.a & (1 << 6))
+            self.flag_n = False
+            self.flag_h = True
+            self.cycles += 8
+        elif opcode == 0x7F:  # BIT 7, A - Test bit 7 in A
+            self.flag_z = not bool(self.a & (1 << 7))
+            self.flag_n = False
+            self.flag_h = True
+            self.cycles += 8
         else:
             if self.debug:
                 print(f"Unimplemented CB opcode: 0x{opcode:02X} at PC: 0x{self.pc-2:04X}")
@@ -900,6 +917,125 @@ class CPU:
         elif opcode == 0x76:  # HALT
             # For now, just NOP
             self.cycles += 4
+        
+        # Additional critical opcodes for big2small.gb
+        elif opcode == 0x2F:  # CPL - Complement A register
+            self.a = (~self.a) & 0xFF
+            self.flag_n = True
+            self.flag_h = True
+            self.cycles += 4
+        elif opcode == 0x0F:  # RRCA - Rotate A right circular
+            carry = self.a & 0x01
+            self.a = ((self.a >> 1) | (carry << 7)) & 0xFF
+            self.flag_z = False
+            self.flag_n = False
+            self.flag_h = False
+            self.flag_c = bool(carry)
+            self.cycles += 4
+        elif opcode == 0xE6:  # AND n - AND A with immediate byte
+            value = self.fetch_byte()
+            self.a = self.a & value
+            self.flag_z = (self.a == 0)
+            self.flag_n = False
+            self.flag_h = True
+            self.flag_c = False
+            self.cycles += 8
+        elif opcode == 0xF2:  # LD A, (0xFF00+C) - Load A from high memory (C)
+            address = 0xFF00 + self.c
+            self.a = self.memory.read_byte(address)
+            self.cycles += 8
+        elif opcode == 0xD9:  # RETI - Return and enable interrupts
+            self.pc = self.pop_word()
+            self.ime = True  # Enable interrupts
+            self.cycles += 16
+        elif opcode == 0x87:  # ADD A, A - Add A to A
+            result = self.a + self.a
+            self.flag_c = result > 0xFF
+            self.flag_h = ((self.a & 0x0F) + (self.a & 0x0F)) > 0x0F
+            self.a = result & 0xFF
+            self.flag_z = (self.a == 0)
+            self.flag_n = False
+            self.cycles += 4
+        elif opcode == 0xC6:  # ADD A, n - Add immediate to A
+            value = self.fetch_byte()
+            result = self.a + value
+            self.flag_c = result > 0xFF
+            self.flag_h = ((self.a & 0x0F) + (value & 0x0F)) > 0x0F
+            self.a = result & 0xFF
+            self.flag_z = (self.a == 0)
+            self.flag_n = False
+            self.cycles += 8
+        elif opcode == 0x09:  # ADD HL, BC - Add BC to HL
+            hl = (self.h << 8) | self.l
+            bc = (self.b << 8) | self.c
+            result = hl + bc
+            self.flag_c = result > 0xFFFF
+            self.flag_h = ((hl & 0x0FFF) + (bc & 0x0FFF)) > 0x0FFF
+            self.flag_n = False
+            self.h = (result >> 8) & 0xFF
+            self.l = result & 0xFF
+            self.cycles += 8
+        elif opcode == 0x19:  # ADD HL, DE - Add DE to HL
+            hl = (self.h << 8) | self.l
+            de = (self.d << 8) | self.e
+            result = hl + de
+            self.flag_c = result > 0xFFFF
+            self.flag_h = ((hl & 0x0FFF) + (de & 0x0FFF)) > 0x0FFF
+            self.flag_n = False
+            self.h = (result >> 8) & 0xFF
+            self.l = result & 0xFF
+            self.cycles += 8
+        elif opcode == 0x36:  # LD (HL), n - Load immediate into address HL
+            value = self.fetch_byte()
+            address = (self.h << 8) | self.l
+            self.memory.write_byte(address, value)
+            self.cycles += 12
+        elif opcode == 0xD6:  # SUB n - Subtract immediate from A
+            value = self.fetch_byte()
+            self.flag_c = self.a < value
+            self.flag_h = (self.a & 0x0F) < (value & 0x0F)
+            self.a = (self.a - value) & 0xFF
+            self.flag_z = (self.a == 0)
+            self.flag_n = True
+            self.cycles += 8
+        elif opcode == 0xB0:  # OR B - OR A with B
+            self.a = self.a | self.b
+            self.flag_z = (self.a == 0)
+            self.flag_n = False
+            self.flag_h = False
+            self.flag_c = False
+            self.cycles += 4
+        elif opcode == 0xA1:  # AND C - AND A with C
+            self.a = self.a & self.c
+            self.flag_z = (self.a == 0)
+            self.flag_n = False
+            self.flag_h = True
+            self.flag_c = False
+            self.cycles += 4
+        elif opcode == 0x07:  # RLCA - Rotate A left circular
+            carry = (self.a >> 7) & 0x01
+            self.a = ((self.a << 1) | carry) & 0xFF
+            self.flag_z = False
+            self.flag_n = False
+            self.flag_h = False
+            self.flag_c = bool(carry)
+            self.cycles += 4
+        elif opcode == 0x80:  # ADD A, B - Add B to A
+            result = self.a + self.b
+            self.flag_c = result > 0xFF
+            self.flag_h = ((self.a & 0x0F) + (self.b & 0x0F)) > 0x0F
+            self.a = result & 0xFF
+            self.flag_z = (self.a == 0)
+            self.flag_n = False
+            self.cycles += 4
+        elif opcode == 0xF6:  # OR n - OR A with immediate
+            value = self.fetch_byte()
+            self.a = self.a | value
+            self.flag_z = (self.a == 0)
+            self.flag_n = False
+            self.flag_h = False
+            self.flag_c = False
+            self.cycles += 8
         
         else:
             # Placeholder for unimplemented instructions

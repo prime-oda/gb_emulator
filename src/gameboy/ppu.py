@@ -251,6 +251,10 @@ class PPU:
                 if event.type == pygame.QUIT:
                     pygame.quit()
                     return False
+                elif event.type == pygame.KEYDOWN:
+                    self.handle_keydown(event.key)
+                elif event.type == pygame.KEYUP:
+                    self.handle_keyup(event.key)
             return True
         
         # Render the frame
@@ -286,6 +290,10 @@ class PPU:
             if event.type == pygame.QUIT:
                 pygame.quit()
                 return False
+            elif event.type == pygame.KEYDOWN:
+                self.handle_keydown(event.key)
+            elif event.type == pygame.KEYUP:
+                self.handle_keyup(event.key)
 
         # Frame rate control
         self.clock.tick(self.target_fps)
@@ -299,6 +307,46 @@ class PPU:
             # Set V-Blank interrupt flag (bit 0 of IF register)
             if_reg = self.memory.read_byte(0xFF0F)
             self.memory.write_byte(0xFF0F, if_reg | 0x01)
+    
+    def handle_keydown(self, key):
+        """Handle key press events"""
+        # Map pygame keys to Game Boy buttons
+        if key == pygame.K_z:  # A button
+            self.memory.press_button(0)  # A = bit 0
+        elif key == pygame.K_x:  # B button
+            self.memory.press_button(1)  # B = bit 1
+        elif key == pygame.K_RSHIFT:  # Select
+            self.memory.press_button(2)  # Select = bit 2
+        elif key == pygame.K_RETURN:  # Start
+            self.memory.press_button(3)  # Start = bit 3
+        elif key == pygame.K_RIGHT:  # Right
+            self.memory.press_direction(0)  # Right = bit 0
+        elif key == pygame.K_LEFT:  # Left
+            self.memory.press_direction(1)  # Left = bit 1
+        elif key == pygame.K_UP:  # Up
+            self.memory.press_direction(2)  # Up = bit 2
+        elif key == pygame.K_DOWN:  # Down
+            self.memory.press_direction(3)  # Down = bit 3
+    
+    def handle_keyup(self, key):
+        """Handle key release events"""
+        # Map pygame keys to Game Boy buttons
+        if key == pygame.K_z:  # A button
+            self.memory.release_button(0)
+        elif key == pygame.K_x:  # B button
+            self.memory.release_button(1)
+        elif key == pygame.K_RSHIFT:  # Select
+            self.memory.release_button(2)
+        elif key == pygame.K_RETURN:  # Start
+            self.memory.release_button(3)
+        elif key == pygame.K_RIGHT:  # Right
+            self.memory.release_direction(0)
+        elif key == pygame.K_LEFT:  # Left
+            self.memory.release_direction(1)
+        elif key == pygame.K_UP:  # Up
+            self.memory.release_direction(2)
+        elif key == pygame.K_DOWN:  # Down
+            self.memory.release_direction(3)
     
     def _draw_fps_display(self, current_time):
         """Draw FPS information on the screen"""
