@@ -21,11 +21,18 @@ class Memory:
         self.banking_mode = 0
         self.ram_enabled = False
         
+        # Boot ROM
+        self.boot_rom = [0] * 0x100
+        self.boot_rom_enabled = True
+        
     def read_byte(self, address):
         """Read a byte from the specified memory address"""
         address &= 0xFFFF
         
-        if address < 0x4000:
+        if address < 0x100 and self.boot_rom_enabled:
+            # Boot ROM (0x0000-0x00FF)
+            return self.boot_rom[address]
+        elif address < 0x4000:
             # ROM Bank 0 (fixed)
             return self.rom[address]
         elif address < 0x8000:
@@ -133,6 +140,13 @@ class Memory:
     
     def load_rom(self, rom_data):
         """Load ROM data into memory"""
-        for i, byte in enumerate(rom_data):
-            if i < len(self.rom):
-                self.rom[i] = byte
+        if len(rom_data) == 256:
+            # This is a boot ROM
+            for i, byte in enumerate(rom_data):
+                if i < len(self.boot_rom):
+                    self.boot_rom[i] = byte
+        else:
+            # This is a regular game ROM
+            for i, byte in enumerate(rom_data):
+                if i < len(self.rom):
+                    self.rom[i] = byte

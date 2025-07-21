@@ -11,7 +11,7 @@ class GameBoy:
     def __init__(self, debug=False):
         self.debug = debug
         self.memory = Memory()
-        self.cpu = CPU(self.memory)
+        self.cpu = CPU(self.memory, debug)
         self.running = False
         
     def load_rom(self, rom_path):
