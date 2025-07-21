@@ -22,8 +22,20 @@ class GameBoy:
             with open(rom_path, 'rb') as f:
                 rom_data = f.read()
             self.memory.load_rom(rom_data)
+            
+            # Initialize CPU based on ROM type
+            if len(rom_data) == 256:
+                # Boot ROM - initialize for boot sequence
+                self.cpu.init_for_boot_rom()
+            else:
+                # Game ROM - initialize as if boot completed
+                self.cpu.init_for_game_rom()
+                
             if self.debug:
                 print(f"Loaded ROM: {rom_path} ({len(rom_data)} bytes)")
+                if len(rom_data) > 256:
+                    print(f"ROM banks: {self.memory.rom_banks}")
+                print(f"Initial PC: 0x{self.cpu.pc:04X}")
         except FileNotFoundError:
             raise FileNotFoundError(f"ROM file not found: {rom_path}")
     
@@ -33,7 +45,6 @@ class GameBoy:
         
         if self.debug:
             print("Starting Game Boy emulator...")
-            print(f"Initial PC: 0x{self.cpu.pc:04X}")
         
         try:
             while self.running:
@@ -63,17 +74,18 @@ class GameBoy:
         # Update PPU with CPU cycles
         self.ppu.step(cpu_cycles)
         
-        # Update memory registers with PPU state
-        self.memory.write_byte(0xFF44, self.ppu.get_ly())  # LY register
-        stat = self.ppu.get_stat()
-        self.memory.write_byte(0xFF41, stat)  # STAT register
+        # Update memory registers with PPU state (direct write to avoid recursion)
+        self.memory.io[0x44] = self.ppu.get_ly()  # LY register
+        stat = self.ppu.get_stat() 
+        self.memory.io[0x41] = stat  # STAT register
         
         # Check if PPU wants to continue (pygame window not closed)
-        if self.ppu.scan_line == 0 and self.ppu.mode == 2:  # Start of new frame
+        # Render when V-Blank starts (scanline 144, mode 1)
+        if self.ppu.scan_line == 144 and self.ppu.mode == 1:
             if not self.ppu.render_frame():
                 return False
         
-        if self.debug and self.cpu.cycles % 10000 == 0:
+        if self.debug and self.cpu.cycles % 100000 == 0:
             print(f"Cycles: {self.cpu.cycles}, PC: 0x{self.cpu.pc:04X}, LY: {self.ppu.scan_line}")
         
         return True

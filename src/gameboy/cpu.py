@@ -19,7 +19,8 @@ class CPU:
         
         # 16-bit registers
         self.sp = 0xFFFE  # Stack pointer
-        self.pc = 0x0100  # Program counter (start at game ROM entry point)
+        # PC will be set correctly based on ROM type in load_rom
+        self.pc = 0x0000  # Program counter (will be set by boot ROM or game)
         
         # Flags register (F)
         self.flag_z = False  # Zero flag
@@ -32,6 +33,97 @@ class CPU:
         
         # Cycle count
         self.cycles = 0
+        
+        # Debug tracking
+        self._ff_count = 0
+        self._pc_history = []
+    
+    def init_for_boot_rom(self):
+        """Initialize CPU state for boot ROM execution"""
+        # Reset all registers to boot ROM initial state
+        self.a = 0x00
+        self.b = 0x00
+        self.c = 0x00
+        self.d = 0x00
+        self.e = 0x00
+        self.h = 0x00
+        self.l = 0x00
+        
+        # Boot ROM starts at 0x0000
+        self.pc = 0x0000
+        self.sp = 0xFFFE
+        
+        # Clear flags
+        self.flag_z = False
+        self.flag_n = False  
+        self.flag_h = False
+        self.flag_c = False
+        
+        # Reset cycle count
+        self.cycles = 0
+        
+    def init_for_game_rom(self):
+        """Initialize CPU state for game ROM execution (post-boot)"""
+        # Game ROM initial state (as if boot ROM completed)
+        self.a = 0x01
+        self.b = 0x00
+        self.c = 0x13
+        self.d = 0x00
+        self.e = 0xD8
+        self.h = 0x01
+        self.l = 0x4D
+        
+        # Game ROM starts at 0x0100
+        self.pc = 0x0100
+        self.sp = 0xFFFE
+        
+    def handle_interrupts(self):
+        """Handle pending interrupts"""
+        if not self.ime:  # Interrupt master enable must be on
+            return False
+            
+        # Read interrupt enable and interrupt flag registers
+        ie = self.memory.read_byte(0xFFFF)  # IE register
+        if_reg = self.memory.read_byte(0xFF0F)  # IF register
+        
+        # Check for enabled and pending interrupts
+        pending = ie & if_reg
+        
+        if pending & 0x01:  # V-Blank interrupt
+            self._service_interrupt(0x40, 0x01)
+            return True
+        elif pending & 0x02:  # LCDC STAT interrupt
+            self._service_interrupt(0x48, 0x02)
+            return True
+        elif pending & 0x04:  # Timer interrupt
+            self._service_interrupt(0x50, 0x04)
+            return True
+        elif pending & 0x08:  # Serial interrupt
+            self._service_interrupt(0x58, 0x08)
+            return True
+        elif pending & 0x10:  # Joypad interrupt
+            self._service_interrupt(0x60, 0x10)
+            return True
+            
+        return False
+    
+    def _service_interrupt(self, vector, flag_bit):
+        """Service an interrupt"""
+        # Disable interrupt master enable
+        self.ime = False
+        
+        # Clear the interrupt flag
+        if_reg = self.memory.read_byte(0xFF0F)
+        self.memory.write_byte(0xFF0F, if_reg & ~flag_bit)
+        
+        # Push current PC to stack
+        self.push_word(self.pc)
+        
+        # Jump to interrupt vector
+        self.pc = vector
+        
+        # Takes 20 cycles
+        self.cycles += 20
         
     def get_f(self):
         """Get flags register value"""
@@ -167,6 +259,16 @@ class CPU:
             self.flag_n = False
             self.flag_h = False
             self.cycles += 8
+        elif opcode == 0x41:  # BIT 0, C
+            self.flag_z = not bool(self.c & (1 << 0))
+            self.flag_n = False
+            self.flag_h = True
+            self.cycles += 8
+        elif opcode == 0x7C:  # BIT 7, H
+            self.flag_z = not bool(self.h & (1 << 7))
+            self.flag_n = False
+            self.flag_h = True
+            self.cycles += 8
         else:
             if self.debug:
                 print(f"Unimplemented CB opcode: 0x{opcode:02X} at PC: 0x{self.pc-2:04X}")
@@ -174,11 +276,22 @@ class CPU:
     
     def step(self):
         """Execute one CPU instruction"""
+        # Handle interrupts before fetching next instruction
+        if self.handle_interrupts():
+            return  # Interrupt was serviced
+            
         opcode = self.fetch_byte()
         self.execute_instruction(opcode)
     
     def execute_instruction(self, opcode):
         """Execute instruction based on opcode"""
+        # Track PC history for debugging
+        if self.debug and len(self._pc_history) < 10:
+            self._pc_history.append(self.pc - 1)
+        elif self.debug:
+            self._pc_history.pop(0)
+            self._pc_history.append(self.pc - 1)
+            
         if opcode == 0x00:  # NOP
             self.cycles += 4
         
@@ -242,6 +355,10 @@ class CPU:
             address = 0xFF00 + self.fetch_byte()
             self.memory.write_byte(address, self.a)
             self.cycles += 12
+        elif opcode == 0xE2:  # LD (0xFF00+C), A
+            address = 0xFF00 + self.c
+            self.memory.write_byte(address, self.a)
+            self.cycles += 8
         elif opcode == 0xF0:  # LD A, (0xFF00+n)
             address = 0xFF00 + self.fetch_byte()
             self.a = self.memory.read_byte(address)
@@ -374,7 +491,8 @@ class CPU:
             else:
                 self.cycles += 8
         elif opcode == 0xC3:  # JP nn - Absolute jump
-            self.pc = self.fetch_word()
+            target = self.fetch_word()
+            self.pc = target
             self.cycles += 16
         elif opcode == 0xC2:  # JP NZ, nn - Jump if not zero
             address = self.fetch_word()
@@ -787,4 +905,10 @@ class CPU:
             # Placeholder for unimplemented instructions
             if self.debug:
                 print(f"Unimplemented opcode: 0x{opcode:02X} at PC: 0x{self.pc-1:04X}")
+                # Exit after too many consecutive 0xFF opcodes to prevent spam
+                self._ff_count += 1 if opcode == 0xFF else 0
+                if opcode == 0xFF and self._ff_count > 10:
+                    print("Too many 0xFF opcodes, likely executing uninitialized memory")
+                    print(f"PC history: {[hex(pc) for pc in self._pc_history]}")
+                    raise Exception("CPU executing uninitialized memory")
             self.cycles += 4

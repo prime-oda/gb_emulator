@@ -25,9 +25,21 @@ class Memory:
         self.boot_rom = [0] * 0x100
         self.boot_rom_enabled = True
         
-        # Initialize LCD registers
-        self.io[0x40] = 0x91  # LCDC: LCD on, BG on
+        # Initialize I/O registers for boot ROM
+        self.io[0x26] = 0x80  # NR52: Sound on
+        self.io[0x11] = 0x80  # NR11: Sound length/wave pattern duty
+        self.io[0x12] = 0xF3  # NR12: Channel 1 Volume Envelope
+        self.io[0x25] = 0x77  # NR51: Selection of Sound output terminal
+        self.io[0x24] = 0x77  # NR50: Channel control / ON-OFF / Volume
+        self.io[0x40] = 0x91  # LCDC: LCD on, BG on, sprites on
         self.io[0x47] = 0xFC  # BGP: Background palette
+        self.io[0x48] = 0xFF  # OBP0: Object palette 0
+        self.io[0x49] = 0xFF  # OBP1: Object palette 1
+        self.io[0x00] = 0x3F  # Joypad: all buttons released
+        
+        # Joypad state
+        self.joypad_buttons = 0x0F  # All buttons released
+        self.joypad_directions = 0x0F  # All directions released
         
     def read_byte(self, address):
         """Read a byte from the specified memory address"""
@@ -38,10 +50,20 @@ class Memory:
             return self.boot_rom[address]
         elif address < 0x4000:
             # ROM Bank 0 (fixed)
-            return self.rom[address]
+            if address < len(self.rom):
+                return self.rom[address]
+            else:
+                # Reading beyond ROM - return 0xFF (uninitialized)
+                return 0xFF
         elif address < 0x8000:
             # ROM Bank 1-N (switchable)
-            bank_address = (address - 0x4000) + (self.rom_bank * 0x4000)
+            # Calculate address in ROM with proper banking
+            if self.rom_bank == 0:
+                # Bank 0 is not switchable in 0x4000-0x7FFF range, use bank 1
+                bank_address = (address - 0x4000) + 0x4000
+            else:
+                bank_address = (address - 0x4000) + (self.rom_bank * 0x4000)
+            
             if bank_address < len(self.rom):
                 return self.rom[bank_address]
             return 0xFF
@@ -89,6 +111,8 @@ class Memory:
                 return self.io[address - 0xFF00]
             elif address == 0xFF4B:  # WX
                 return self.io[address - 0xFF00]
+            elif address == 0xFF00:  # Joypad register
+                return self.read_joypad()
             else:
                 return self.io[address - 0xFF00]
         elif address < 0xFFFF:
@@ -146,7 +170,10 @@ class Memory:
             pass
         elif address < 0xFF80:
             # I/O registers
-            self.io[address - 0xFF00] = value
+            if address == 0xFF00:  # Joypad register
+                self.write_joypad(value)
+            else:
+                self.io[address - 0xFF00] = value
         elif address < 0xFFFF:
             # High RAM
             self.hram[address - 0xFF80] = value
@@ -172,9 +199,72 @@ class Memory:
             for i, byte in enumerate(rom_data):
                 if i < len(self.boot_rom):
                     self.boot_rom[i] = byte
+            # Boot ROM starts at 0x0000
+            self.boot_rom_enabled = True
+            self.is_boot_rom = True
+            
+            # Reset I/O registers for clean boot ROM execution
+            self.io[0x26] = 0x00  # NR52: Sound initially off (boot ROM turns it on)
+            self.io[0x40] = 0x00  # LCDC: LCD initially off (boot ROM turns it on)
         else:
             # This is a regular game ROM
             self.boot_rom_enabled = False  # Disable boot ROM for games
+            
+            # Expand ROM array to accommodate the full ROM
+            self.rom = [0] * len(rom_data)
             for i, byte in enumerate(rom_data):
-                if i < len(self.rom):
-                    self.rom[i] = byte
+                self.rom[i] = byte
+                
+            # Calculate number of ROM banks (16KB each)
+            self.rom_banks = max(2, (len(rom_data) + 0x3FFF) // 0x4000)
+            
+            # Game ROM starts at 0x0100
+            self.is_boot_rom = False
+    
+    def read_joypad(self):
+        """Read joypad register with proper bit selection"""
+        # Get current joypad register value (determines which bits to read)
+        joypad_reg = self.io[0x00]
+        
+        # Bit 5 = 0: Read button keys (A, B, Select, Start)
+        # Bit 4 = 0: Read direction keys (Right, Left, Up, Down)
+        
+        result = 0xC0  # Bits 7-6 are unused (always 1)
+        
+        if not (joypad_reg & 0x20):  # Button keys selected
+            result |= 0x20  # Set bit 5
+            result |= (self.joypad_buttons & 0x0F)  # Bits 3-0: button states
+        elif not (joypad_reg & 0x10):  # Direction keys selected  
+            result |= 0x10  # Set bit 4
+            result |= (self.joypad_directions & 0x0F)  # Bits 3-0: direction states
+        else:
+            # No selection, return all released
+            result |= 0x3F
+        
+        return result
+    
+    def write_joypad(self, value):
+        """Write to joypad register (only bits 5-4 are writable)"""
+        # Only bits 5-4 can be written (key selection)
+        self.io[0x00] = (value & 0x30) | 0xC0  # Keep bits 7-6 as 1
+        
+    def press_button(self, button):
+        """Simulate button press (0=pressed, 1=released in Game Boy)"""
+        # Button mapping: A=0, B=1, Select=2, Start=3
+        if 0 <= button <= 3:
+            self.joypad_buttons &= ~(1 << button)  # Clear bit (pressed)
+    
+    def release_button(self, button):
+        """Simulate button release"""
+        if 0 <= button <= 3:
+            self.joypad_buttons |= (1 << button)  # Set bit (released)
+    
+    def press_direction(self, direction):
+        """Simulate direction press (Right=0, Left=1, Up=2, Down=3)"""
+        if 0 <= direction <= 3:
+            self.joypad_directions &= ~(1 << direction)  # Clear bit (pressed)
+    
+    def release_direction(self, direction):
+        """Simulate direction release"""
+        if 0 <= direction <= 3:
+            self.joypad_directions |= (1 << direction)  # Set bit (released)

@@ -7,6 +7,9 @@ A Python implementation of the Nintendo Game Boy handheld console emulator.
 import sys
 import argparse
 from src.gameboy.emulator import GameBoy
+import cProfile
+import pstats
+# Removed circular import
 
 
 def main():
@@ -29,4 +32,9 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    profiler = cProfile.Profile()
+    profiler.enable()
+    main()  # Call main function
+    profiler.disable()
+    stats = pstats.Stats(profiler)
+    stats.sort_stats('cumulative').print_stats(20)  # 上位20の遅い関数を表示
