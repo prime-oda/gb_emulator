@@ -1,0 +1,6 @@
+# Game Boy Emulator Requirements
+# No external dependencies required for basic emulation
+
+# Optional dependencies for future features:
+# pygame>=2.0.0  # For graphics and sound
+# numpy>=1.20.0  # For performance optimizations
