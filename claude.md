@@ -26,12 +26,20 @@ gb_emulator/
 
 ### uvを使用（推奨）
 ```bash
+# ブートROM実行
 uv run python main.py roms/dmg_bootrom.bin --debug
+
+# ゲームROM実行
+uv run python main.py roms/big2small.gb --debug
 ```
 
 ### pipを使用
 ```bash
+# ブートROM実行
 python main.py roms/dmg_bootrom.bin --debug
+
+# ゲームROM実行  
+python main.py roms/big2small.gb --debug
 ```
 
 ## 開発状況
@@ -44,11 +52,13 @@ python main.py roms/dmg_bootrom.bin --debug
 - [x] PPU (画像処理ユニット)
 - [x] 背景レンダリング
 - [x] Pygame グラフィック出力
+- [x] ゲームROM対応
+- [x] 拡張CPU命令セット
 - [ ] スプライト描画
 - [ ] ウィンドウレイヤー
 - [ ] 音声処理 (APU)
 - [ ] 入力処理（ジョイパッド）
-- [ ] ゲームROM対応
+- [ ] セーブ機能
 
 ## 実装済み機能
 
@@ -83,12 +93,25 @@ python main.py roms/dmg_bootrom.bin --debug
 
 ## 動作確認
 
-現在のバージョンでは、ブートROMが正常に実行され、グラフィック出力が表示されます：
+現在のバージョンでは、ブートROMとゲームROMが正常に実行され、グラフィック出力が表示されます：
 
 1. VRAMクリア処理の実行
 2. LCDスキャンライン制御
 3. 背景描画システム
 4. PPU-CPU同期
+5. ゲームROM実行（big2small.gb対応）
+
+## テストROM
+
+### 対応ROM
+- **dmg_bootrom.bin**: Game Boyブートロム（256バイト）
+- **big2small.gb**: GPLライセンスのテストゲーム
+
+### big2small.gb について
+- **開発者**: MDSteele
+- **入手先**: https://mdsteele.itch.io/big2small
+- **ライセンス**: GPL
+- **説明**: Game Boy用パズルゲーム、エミュレータテストに最適
 
 ## 依存関係
 

@@ -19,7 +19,7 @@ class CPU:
         
         # 16-bit registers
         self.sp = 0xFFFE  # Stack pointer
-        self.pc = 0x0000  # Program counter (start at boot ROM)
+        self.pc = 0x0100  # Program counter (start at game ROM entry point)
         
         # Flags register (F)
         self.flag_z = False  # Zero flag
@@ -563,6 +563,27 @@ class CPU:
             value = self.memory.read_byte(self.get_hl())
             self.compare(value)
             self.cycles += 8
+        elif opcode == 0xB8:  # CP B - Compare A with B
+            self.compare(self.b)
+            self.cycles += 4
+        elif opcode == 0xB9:  # CP C - Compare A with C
+            self.compare(self.c)
+            self.cycles += 4
+        elif opcode == 0xBA:  # CP D - Compare A with D
+            self.compare(self.d)
+            self.cycles += 4
+        elif opcode == 0xBB:  # CP E - Compare A with E
+            self.compare(self.e)
+            self.cycles += 4
+        elif opcode == 0xBC:  # CP H - Compare A with H
+            self.compare(self.h)
+            self.cycles += 4
+        elif opcode == 0xBD:  # CP L - Compare A with L
+            self.compare(self.l)
+            self.cycles += 4
+        elif opcode == 0xBF:  # CP A - Compare A with A
+            self.compare(self.a)
+            self.cycles += 4
         
         # Logic operations
         elif opcode == 0xA7:  # AND A - AND A with A (used to set flags)
@@ -570,6 +591,19 @@ class CPU:
             self.flag_z = (self.a == 0)
             self.flag_n = False
             self.flag_h = True
+            self.flag_c = False
+            self.cycles += 4
+        elif opcode == 0xAF:  # XOR A - XOR A with A (clears A)
+            self.a = 0
+            self.flag_z = True
+            self.flag_n = False
+            self.flag_h = False
+            self.flag_c = False
+            self.cycles += 4
+        elif opcode == 0xB7:  # OR A - OR A with A (sets flags)
+            self.flag_z = (self.a == 0)
+            self.flag_n = False
+            self.flag_h = False
             self.flag_c = False
             self.cycles += 4
         
@@ -636,6 +670,105 @@ class CPU:
             self.cycles += 4
         elif opcode == 0x7D:  # LD A, L
             self.a = self.l
+            self.cycles += 4
+        
+        # More complete register to register loads
+        elif opcode == 0x42:  # LD B, D
+            self.b = self.d
+            self.cycles += 4
+        elif opcode == 0x43:  # LD B, E
+            self.b = self.e
+            self.cycles += 4
+        elif opcode == 0x44:  # LD B, H
+            self.b = self.h
+            self.cycles += 4
+        elif opcode == 0x45:  # LD B, L
+            self.b = self.l
+            self.cycles += 4
+        elif opcode == 0x48:  # LD C, B
+            self.c = self.b
+            self.cycles += 4
+        elif opcode == 0x49:  # LD C, C
+            self.cycles += 4
+        elif opcode == 0x4A:  # LD C, D
+            self.c = self.d
+            self.cycles += 4
+        elif opcode == 0x4B:  # LD C, E
+            self.c = self.e
+            self.cycles += 4
+        elif opcode == 0x4C:  # LD C, H
+            self.c = self.h
+            self.cycles += 4
+        elif opcode == 0x4D:  # LD C, L
+            self.c = self.l
+            self.cycles += 4
+        elif opcode == 0x50:  # LD D, B
+            self.d = self.b
+            self.cycles += 4
+        elif opcode == 0x51:  # LD D, C
+            self.d = self.c
+            self.cycles += 4
+        elif opcode == 0x52:  # LD D, D
+            self.cycles += 4
+        elif opcode == 0x53:  # LD D, E
+            self.d = self.e
+            self.cycles += 4
+        elif opcode == 0x54:  # LD D, H
+            self.d = self.h
+            self.cycles += 4
+        elif opcode == 0x55:  # LD D, L
+            self.d = self.l
+            self.cycles += 4
+        elif opcode == 0x58:  # LD E, B
+            self.e = self.b
+            self.cycles += 4
+        elif opcode == 0x59:  # LD E, C
+            self.e = self.c
+            self.cycles += 4
+        elif opcode == 0x5A:  # LD E, D
+            self.e = self.d
+            self.cycles += 4
+        elif opcode == 0x5B:  # LD E, E
+            self.cycles += 4
+        elif opcode == 0x5C:  # LD E, H
+            self.e = self.h
+            self.cycles += 4
+        elif opcode == 0x5D:  # LD E, L
+            self.e = self.l
+            self.cycles += 4
+        elif opcode == 0x60:  # LD H, B
+            self.h = self.b
+            self.cycles += 4
+        elif opcode == 0x61:  # LD H, C
+            self.h = self.c
+            self.cycles += 4
+        elif opcode == 0x62:  # LD H, D
+            self.h = self.d
+            self.cycles += 4
+        elif opcode == 0x63:  # LD H, E
+            self.h = self.e
+            self.cycles += 4
+        elif opcode == 0x64:  # LD H, H
+            self.cycles += 4
+        elif opcode == 0x65:  # LD H, L
+            self.h = self.l
+            self.cycles += 4
+        elif opcode == 0x68:  # LD L, B
+            self.l = self.b
+            self.cycles += 4
+        elif opcode == 0x69:  # LD L, C
+            self.l = self.c
+            self.cycles += 4
+        elif opcode == 0x6A:  # LD L, D
+            self.l = self.d
+            self.cycles += 4
+        elif opcode == 0x6B:  # LD L, E
+            self.l = self.e
+            self.cycles += 4
+        elif opcode == 0x6C:  # LD L, H
+            self.l = self.h
+            self.cycles += 4
+        elif opcode == 0x6D:  # LD L, L
             self.cycles += 4
         
         # Interrupts

@@ -174,6 +174,7 @@ class Memory:
                     self.boot_rom[i] = byte
         else:
             # This is a regular game ROM
+            self.boot_rom_enabled = False  # Disable boot ROM for games
             for i, byte in enumerate(rom_data):
                 if i < len(self.rom):
                     self.rom[i] = byte
