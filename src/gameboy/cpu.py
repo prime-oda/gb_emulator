@@ -1,3 +1,8 @@
+import logging
+
+# Configure logging
+logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
+
 """
 Game Boy CPU (Sharp LR35902) emulation
 Based on the Z80 architecture with some modifications.
@@ -16,6 +21,9 @@ class CPU:
         self.e = 0xD8
         self.h = 0x01
         self.l = 0x4D
+        
+        # Initialize HL register
+        self.hl = (self.h << 8) | self.l
         
         # 16-bit registers
         self.sp = 0xFFFE  # Stack pointer
@@ -270,11 +278,18 @@ class CPU:
             self.flag_h = True
             self.cycles += 8
         elif opcode == 0x37:  # SWAP A - Swap upper and lower nibbles of A
-            self.a = ((self.a << 4) | (self.a >> 4)) & 0xFF
+            self.a = ((self.a & 0x0F) << 4) | ((self.a & 0xF0) >> 4)
             self.flag_z = (self.a == 0)
             self.flag_n = False
             self.flag_h = False
             self.flag_c = False
+            self.cycles += 8
+        elif opcode == 0x3F:  # SRL A - Shift A right logical
+            self.flag_c = bool(self.a & 0x01)
+            self.a = self.a >> 1
+            self.flag_z = (self.a == 0)
+            self.flag_n = False
+            self.flag_h = False
             self.cycles += 8
         elif opcode == 0x77:  # BIT 6, A - Test bit 6 in A
             self.flag_z = not bool(self.a & (1 << 6))
@@ -285,6 +300,29 @@ class CPU:
             self.flag_z = not bool(self.a & (1 << 7))
             self.flag_n = False
             self.flag_h = True
+            self.cycles += 8
+        elif opcode == 0x1A:  # RR D - Rotate D right through carry
+            carry = 1 if self.flag_c else 0
+            self.flag_c = bool(self.d & 0x01)
+            self.d = (self.d >> 1) | (carry << 7)
+            self.flag_z = (self.d == 0)
+            self.flag_n = False
+            self.flag_h = False
+            self.cycles += 8
+        elif opcode == 0x38:  # SRL B - Shift B right logical
+            self.flag_c = bool(self.b & 0x01)
+            self.b = self.b >> 1
+            self.flag_z = (self.b == 0)
+            self.flag_n = False
+            self.flag_h = False
+            self.cycles += 8
+        elif opcode == 0x19:  # RR C - Rotate C right through carry
+            carry = 1 if self.flag_c else 0
+            self.flag_c = bool(self.c & 0x01)
+            self.c = (self.c >> 1) | (carry << 7)
+            self.flag_z = (self.c == 0)
+            self.flag_n = False
+            self.flag_h = False
             self.cycles += 8
         else:
             if self.debug:
@@ -380,7 +418,17 @@ class CPU:
             address = 0xFF00 + self.fetch_byte()
             self.a = self.memory.read_byte(address)
             self.cycles += 12
-        
+        elif opcode == 0xF8:  # LD HL, SP+n
+            offset = self.fetch_byte()
+            if offset > 127:
+                offset = offset - 256
+            result = (self.sp + offset) & 0xFFFF
+            self.flag_z = False
+            self.flag_n = False
+            self.flag_h = ((self.sp & 0x0F) + (offset & 0x0F)) > 0x0F
+            self.flag_c = ((self.sp & 0xFF) + (offset & 0xFF)) > 0xFF
+            self.set_hl(result)
+            self.cycles += 12        
         # Absolute memory operations
         elif opcode == 0xEA:  # LD (nn), A
             address = self.fetch_word()
@@ -743,9 +791,17 @@ class CPU:
             self.cycles += 4
         
         # Bit operations (CB prefix)
-        elif opcode == 0xCB:  # CB prefix for bit operations
+        elif opcode == 0xCB:  # CB-prefixed opcodes
             cb_opcode = self.fetch_byte()
             self.execute_cb_instruction(cb_opcode)
+        elif opcode == 0x1F:  # RRA - Rotate A right through carry
+            carry = 1 if self.flag_c else 0
+            self.flag_c = bool(self.a & 0x01)
+            self.a = (self.a >> 1) | (carry << 7)
+            self.flag_z = False
+            self.flag_n = False
+            self.flag_h = False
+            self.cycles += 4
         
         # Stack operations
         elif opcode == 0xF5:  # PUSH AF
@@ -1028,6 +1084,14 @@ class CPU:
             self.flag_z = (self.a == 0)
             self.flag_n = False
             self.cycles += 4
+        elif opcode == 0x81:  # ADD A, C - Add C to A
+            result = self.a + self.c
+            self.flag_c = result > 0xFF
+            self.flag_h = ((self.a & 0x0F) + (self.c & 0x0F)) > 0x0F
+            self.a = result & 0xFF
+            self.flag_z = (self.a == 0)
+            self.flag_n = False
+            self.cycles += 4
         elif opcode == 0xF6:  # OR n - OR A with immediate
             value = self.fetch_byte()
             self.a = self.a | value
@@ -1036,7 +1100,95 @@ class CPU:
             self.flag_h = False
             self.flag_c = False
             self.cycles += 8
-        
+        elif opcode == 0xCE:  # ADC A, n
+            value = self.fetch_byte()
+            carry = 1 if self.flag_c else 0
+            result = self.a + value + carry
+            self.flag_c = result > 0xFF
+            self.flag_h = ((self.a & 0x0F) + (value & 0x0F) + carry) > 0x0F
+            self.a = result & 0xFF
+            self.flag_z = (self.a == 0)
+            self.flag_n = False
+            self.cycles += 8
+        elif opcode == 0xAE:  # XOR (HL)
+            value = self.read_byte(self.hl)
+            self.cycles += 8
+        elif opcode == 0xEE:  # XOR n
+            value = self.fetch_byte()
+            self.a ^= value
+            self.flag_z = (self.a == 0)
+            self.flag_n = False
+            self.flag_h = False
+            self.flag_c = False
+            self.cycles += 8
+        elif opcode == 0xED:  # Placeholder for unknown opcode
+            raise NotImplementedError(f"Unimplemented opcode: 0x{opcode:02X} at PC: 0x{self.pc:04X}")
+        elif opcode == 0x83:  # ADD A, E
+            result = self.a + self.e
+            self.flag_z = ((result & 0xFF) == 0)
+            self.flag_n = False
+            self.flag_h = ((self.a & 0x0F) + (self.e & 0x0F)) > 0x0F
+            self.flag_c = (result > 0xFF)
+            self.a = result & 0xFF
+            self.cycles += 4
+        elif opcode == 0xB6:  # OR (HL)
+            value = self.read_byte(self.hl)
+            self.a |= value
+            self.flag_z = (self.a == 0)
+            self.flag_n = False
+            self.flag_h = False
+            self.flag_c = False
+            self.cycles += 8
+        elif opcode == 0xB1:  # OR C
+            self.a |= self.c
+            self.flag_z = (self.a == 0)
+            self.flag_n = False
+            self.flag_h = False
+            self.flag_c = False
+            self.cycles += 4
+        elif opcode == 0x29:  # ADD HL, HL
+            result = self.hl + self.hl
+            self.flag_n = False
+            self.flag_h = ((self.hl & 0x0FFF) + (self.hl & 0x0FFF)) > 0x0FFF
+            self.flag_c = (result > 0xFFFF)
+            self.hl = result & 0xFFFF
+            self.cycles += 8
+        elif opcode == 0x91:  # SUB C
+            result = self.a - self.c
+            self.flag_z = ((result & 0xFF) == 0)
+            self.flag_n = True
+            self.flag_h = ((self.a & 0x0F) < (self.c & 0x0F))
+            self.flag_c = (result < 0)
+            self.a = result & 0xFF
+            self.cycles += 4
+        elif opcode == 0xA9:  # XOR C
+#            logging.debug(f"[DEBUG] Executing XOR C at PC: 0x{self.pc:04X}")
+#            logging.debug(f"[DEBUG] Initial state: A=0x{self.a:02X}, C=0x{self.c:02X}, Z={self.flag_z}, N={self.flag_n}, H={self.flag_h}, C={self.flag_c}")
+            self.a ^= self.c
+            self.flag_z = (self.a == 0)
+            self.flag_n = False
+            self.flag_h = False
+            self.flag_c = False
+#            logging.debug(f"[DEBUG] Result: A=0x{self.a:02X}, Z={self.flag_z}, N={self.flag_n}, H={self.flag_h}, C={self.flag_c}")
+            self.cycles += 4
+        elif opcode == 0x27:  # DAA - Decimal Adjust Accumulator
+            if not self.flag_n:  # After addition
+                if self.flag_h or (self.a & 0x0F) > 0x09:
+                    self.a += 0x06
+                if self.flag_c or self.a > 0x9F:
+                    self.a += 0x60
+            else:  # After subtraction
+                if self.flag_h:
+                    self.a = (self.a - 0x06) & 0xFF
+                if self.flag_c:
+                    self.a = (self.a - 0x60) & 0xFF
+
+            self.flag_h = False
+            self.flag_z = (self.a & 0xFF) == 0
+            if self.a > 0xFF:
+                self.flag_c = True
+            self.a &= 0xFF
+            self.cycles += 4
         else:
             # Placeholder for unimplemented instructions
             if self.debug:
@@ -1048,3 +1200,7 @@ class CPU:
                     print(f"PC history: {[hex(pc) for pc in self._pc_history]}")
                     raise Exception("CPU executing uninitialized memory")
             self.cycles += 4
+    
+    def read_byte(self, address):
+        """Read a byte from the given memory address."""
+        return self.memory.read(address)
