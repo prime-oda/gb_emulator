@@ -578,6 +578,66 @@ class CPU:
             cb_opcode = self.fetch_byte()
             self.execute_cb_instruction(cb_opcode)
         
+        # Stack operations
+        elif opcode == 0xF5:  # PUSH AF
+            self.push_word(self.get_af())
+            self.cycles += 16
+        elif opcode == 0xF1:  # POP AF
+            self.set_af(self.pop_word())
+            self.cycles += 12
+        elif opcode == 0xC5:  # PUSH BC
+            self.push_word(self.get_bc())
+            self.cycles += 16
+        elif opcode == 0xC1:  # POP BC
+            self.set_bc(self.pop_word())
+            self.cycles += 12
+        elif opcode == 0xD5:  # PUSH DE
+            self.push_word(self.get_de())
+            self.cycles += 16
+        elif opcode == 0xD1:  # POP DE
+            self.set_de(self.pop_word())
+            self.cycles += 12
+        elif opcode == 0xE5:  # PUSH HL
+            self.push_word(self.get_hl())
+            self.cycles += 16
+        elif opcode == 0xE1:  # POP HL
+            self.set_hl(self.pop_word())
+            self.cycles += 12
+        
+        # Additional register operations
+        elif opcode == 0x1A:  # LD A, (DE)
+            self.a = self.memory.read_byte(self.get_de())
+            self.cycles += 8
+        elif opcode == 0x0A:  # LD A, (BC)
+            self.a = self.memory.read_byte(self.get_bc())
+            self.cycles += 8
+        elif opcode == 0x12:  # LD (DE), A
+            self.memory.write_byte(self.get_de(), self.a)
+            self.cycles += 8
+        elif opcode == 0x02:  # LD (BC), A
+            self.memory.write_byte(self.get_bc(), self.a)
+            self.cycles += 8
+        
+        # Register to register loads (more complete set)
+        elif opcode == 0x78:  # LD A, B
+            self.a = self.b
+            self.cycles += 4
+        elif opcode == 0x79:  # LD A, C
+            self.a = self.c
+            self.cycles += 4
+        elif opcode == 0x7A:  # LD A, D
+            self.a = self.d
+            self.cycles += 4
+        elif opcode == 0x7B:  # LD A, E
+            self.a = self.e
+            self.cycles += 4
+        elif opcode == 0x7C:  # LD A, H
+            self.a = self.h
+            self.cycles += 4
+        elif opcode == 0x7D:  # LD A, L
+            self.a = self.l
+            self.cycles += 4
+        
         # Interrupts
         elif opcode == 0xF3:  # DI - Disable interrupts
             self.ime = False

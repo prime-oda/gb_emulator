@@ -25,6 +25,10 @@ class Memory:
         self.boot_rom = [0] * 0x100
         self.boot_rom_enabled = True
         
+        # Initialize LCD registers
+        self.io[0x40] = 0x91  # LCDC: LCD on, BG on
+        self.io[0x47] = 0xFC  # BGP: Background palette
+        
     def read_byte(self, address):
         """Read a byte from the specified memory address"""
         address &= 0xFFFF
@@ -63,7 +67,30 @@ class Memory:
             return 0xFF
         elif address < 0xFF80:
             # I/O registers
-            return self.io[address - 0xFF00]
+            if address == 0xFF40:  # LCDC
+                return self.io[address - 0xFF00]
+            elif address == 0xFF41:  # STAT
+                return self.io[address - 0xFF00]
+            elif address == 0xFF42:  # SCY
+                return self.io[address - 0xFF00]
+            elif address == 0xFF43:  # SCX
+                return self.io[address - 0xFF00]
+            elif address == 0xFF44:  # LY
+                return self.io[address - 0xFF00]
+            elif address == 0xFF45:  # LYC
+                return self.io[address - 0xFF00]
+            elif address == 0xFF47:  # BGP
+                return self.io[address - 0xFF00]
+            elif address == 0xFF48:  # OBP0
+                return self.io[address - 0xFF00]
+            elif address == 0xFF49:  # OBP1
+                return self.io[address - 0xFF00]
+            elif address == 0xFF4A:  # WY
+                return self.io[address - 0xFF00]
+            elif address == 0xFF4B:  # WX
+                return self.io[address - 0xFF00]
+            else:
+                return self.io[address - 0xFF00]
         elif address < 0xFFFF:
             # High RAM
             return self.hram[address - 0xFF80]

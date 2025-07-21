@@ -3,4 +3,6 @@ name = "gb-emulator"
 version = "0.1.0"
 description = "Add your description here"
 requires-python = ">=3.10.13"
-dependencies = []
+dependencies = [
+    "pygame>=2.6.1",
+]
