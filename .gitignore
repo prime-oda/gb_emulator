@@ -1,8 +1,12 @@
 # Python cache files
 __pycache__/
+*/__pycache__/
+**/__pycache__/
 *.pyc
 *.pyo
 *.pyd
+*.py[cod]
+*$py.class
 
 # macOS system files
 .DS_Store
@@ -24,8 +28,8 @@ trace_*.py
 wait_for_*.py
 full_vram_*.py
 
-# ROM files (optional - uncomment if you don't want to track ROMs)
-# roms/
+# ROM files
+roms/
 
 # Python virtual environment
 venv/
