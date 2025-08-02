@@ -85,18 +85,19 @@ class GameBoy:
                     stat = self.memory.read_byte(0xFF41)
                     print(f"Cycles: {cycle_count}, PC: 0x{self.cpu.pc:04X}, LY: {ly}, LCDC: 0x{lcdc:02X}, STAT: 0x{stat:02X}")
                 
-                # CPU cycle progress tracking - less frequent for speed
-                if cycle_count % 500000 == 0:  # Every 500k cycles for speed
+                # CPU cycle progress tracking - balanced for speed and visibility
+                if cycle_count % 5000000 == 0:  # Every 5M cycles for good visibility
                     ly = self.memory.read_byte(0xFF44)
                     lcdc = self.memory.read_byte(0xFF40)
-                    stat = self.memory.read_byte(0xFF41)
                     print(f"CPU Progress: {cycle_count} cycles, PC: 0x{self.cpu.pc:04X}, LY: {ly}, LCDC: 0x{lcdc:02X}")
-                    # Show CPU registers to debug the waiting loop at 0x0213-0x0215
-                    if 0x0210 <= self.cpu.pc <= 0x0220:
-                        print(f"  Registers: A=0x{self.cpu.a:02X}, B=0x{self.cpu.b:02X}, C=0x{self.cpu.c:02X}, Flags: Z={self.cpu.flag_z}, N={self.cpu.flag_n}, H={self.cpu.flag_h}, C={self.cpu.flag_c}")
+                    
+                    # VRAMテキスト書き込み状況も表示
+                    text_writes = getattr(self.memory, '_text_writes', 0)
+                    if text_writes > 0:
+                        print(f"           📝 VRAM Text Writes: {text_writes}")
                 
-                # Render frames more frequently for maximum speed (every 10k cycles)
-                if cycle_count % 10000 == 0:
+                # Render frames less frequently for maximum speed (every 50k cycles)
+                if cycle_count % 50000 == 0:
                     frame_count += 1
                     # Render frame and check if window should close
                     try:

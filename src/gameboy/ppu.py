@@ -206,10 +206,10 @@ class PPU:
         scy = self.memory.read_byte(0xFF42)  # Scroll Y
         scx = self.memory.read_byte(0xFF43)  # Scroll X
 
-        # Debug output every 5 seconds for longer observation
+        # Debug output much less frequently for speed
         debug_should_run = (self.scan_line == 0 and 
                            (not hasattr(self, 'bg_debug_counter') or 
-                            getattr(self, 'bg_debug_counter', 0) % 300 == 0))  # Every 5 seconds
+                            getattr(self, 'bg_debug_counter', 0) % 3600 == 0))  # Every 60 seconds
         
         if debug_should_run:
             self.bg_debug_counter = getattr(self, 'bg_debug_counter', 0) + 1
@@ -470,7 +470,7 @@ class PPU:
         if not hasattr(self, '_event_debug_counter'):
             self._event_debug_counter = 0
         self._event_debug_counter += 1
-        if self._event_debug_counter % 300 == 0:  # Every ~5 seconds
+        if self._event_debug_counter % 3600 == 0:  # Every ~60 seconds
             print(f"🔧 Event processing: {events_processed} events this frame")
 
         # Maximum speed mode - no frame rate limit for testing

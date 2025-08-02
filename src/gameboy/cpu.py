@@ -1574,6 +1574,7 @@ class CPU:
             if self.debug:
                 print(f"Unimplemented CB opcode: 0x{opcode:02X} at PC: 0x{self.pc-2:04X}")
             self.cycles += 8
+            return  # CRITICAL FIX: Return from function to prevent infinite loop
     
     def step(self):
         """Execute one CPU instruction"""

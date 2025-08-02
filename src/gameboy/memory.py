@@ -165,13 +165,18 @@ class Memory:
             # Banking mode select
             self.banking_mode = value & 0x01
         elif address < 0xA000:
-            # Video RAM - detect important text writes only
+            # Video RAM - detect important text writes with detailed logging
             if address >= 0x9800 and value != 0x20:  # Background map area, non-space
-                if not hasattr(self, '_text_found'):
-                    self._text_found = True
-                    row = (address - 0x9800) // 32
-                    col = (address - 0x9800) % 32
-                    print(f"🎉 FIRST TEXT FOUND: row={row}, col={col}, char=0x{value:02X}")
+                row = (address - 0x9800) // 32
+                col = (address - 0x9800) % 32
+                if not hasattr(self, '_text_writes'):
+                    self._text_writes = 0
+                self._text_writes += 1
+                
+                if self._text_writes <= 3:  # Log first 3 text writes only
+                    print(f"📝 TEXT WRITE #{self._text_writes}: row={row}, col={col}, char=0x{value:02X} ('{chr(value) if 32 <= value <= 126 else '?'}')")
+                elif self._text_writes == 4:
+                    print("📝 (Suppressing text write logs for speed...)")
             self.vram[address - 0x8000] = value
         elif address < 0xC000:
             # External RAM
