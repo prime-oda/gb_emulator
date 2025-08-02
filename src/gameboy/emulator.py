@@ -8,6 +8,7 @@ from .cpu import CPU
 from .memory import Memory
 from .ppu import PPU
 from .apu import APU
+from .timer import Timer
 
 
 class GameBoy:
@@ -17,9 +18,11 @@ class GameBoy:
         self.cpu = CPU(self.memory, debug)
         self.ppu = PPU(self.memory, debug)
         self.apu = APU(self.memory, debug)
+        self.timer = Timer(self.memory)
         
-        # Link APU to memory for register access
+        # Link components to memory for register access
         self.memory.apu = self.apu
+        self.memory.timer = self.timer
         
         self.running = True  # エミュレータを実行状態に設定
         
@@ -71,6 +74,9 @@ class GameBoy:
                 # Execute one CPU instruction
                 cycles = self.step()
                 cycle_count += cycles
+                
+                # Update timer
+                self.timer.update(cycles)
                 
                 # Debug output for CPU cycles and state
                 if self.debug and cycle_count % 20000000 == 0:

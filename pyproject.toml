@@ -1,9 +1,32 @@
 [project]
 name = "gb-emulator"
 version = "0.1.0"
-description = "Add your description here"
+description = "Nintendo Game Boy Emulator in Python"
 requires-python = ">=3.10.13"
 dependencies = [
     "pygame>=2.6.1",
     "numpy>=1.21.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "pytest-cov>=4.0.0",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py", "*_test.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = [
+    "--verbose",
+    "--tb=short",
+    "--strict-markers",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.4.1",
+    "pytest-cov>=6.2.1",
 ]

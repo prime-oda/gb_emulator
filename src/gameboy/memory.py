@@ -42,6 +42,13 @@ class Memory:
         self.joypad_buttons = 0x0F  # All buttons released
         self.joypad_directions = 0x0F  # All directions released
         
+        # Timer registers
+        self.timer = None  # Will be set by emulator
+        self.io[0x04] = 0x00  # DIV - Divider register
+        self.io[0x05] = 0x00  # TIMA - Timer counter
+        self.io[0x06] = 0x00  # TMA - Timer modulo
+        self.io[0x07] = 0x00  # TAC - Timer control
+        
     def read_byte(self, address):
         """Read a byte from the specified memory address"""
         address &= 0xFFFF
@@ -114,6 +121,11 @@ class Memory:
                 return self.io[address - 0xFF00]
             elif address == 0xFF00:  # Joypad register
                 return self.read_joypad()
+            elif 0xFF04 <= address <= 0xFF07:  # Timer registers
+                if self.timer:
+                    return self.timer.read_register(address)
+                else:
+                    return self.io[address - 0xFF00]
             elif 0xFF10 <= address <= 0xFF3F and self.apu:  # Audio registers
                 return self.apu.read_register(address)
             else:
@@ -181,6 +193,15 @@ class Memory:
             # I/O registers
             if address == 0xFF00:  # Joypad register
                 self.write_joypad(value)
+            elif 0xFF04 <= address <= 0xFF07:  # Timer registers
+                if self.timer:
+                    self.timer.write_register(address, value)
+                else:
+                    self.io[address - 0xFF00] = value
+            elif address == 0xFF50:  # Boot ROM disable register
+                if value != 0:
+                    self.boot_rom_enabled = False
+                self.io[address - 0xFF00] = value
             elif 0xFF10 <= address <= 0xFF3F and self.apu:  # Audio registers
                 self.apu.write_register(address, value)
             else:
@@ -271,6 +292,8 @@ class Memory:
         # Button mapping: A=0, B=1, Select=2, Start=3
         if 0 <= button <= 3:
             self.joypad_buttons &= ~(1 << button)  # Clear bit (pressed)
+            # Trigger joypad interrupt if enabled
+            self._trigger_joypad_interrupt()
     
     def release_button(self, button):
         """Simulate button release"""
@@ -281,6 +304,15 @@ class Memory:
         """Simulate direction press (Right=0, Left=1, Up=2, Down=3)"""
         if 0 <= direction <= 3:
             self.joypad_directions &= ~(1 << direction)  # Clear bit (pressed)
+            # Trigger joypad interrupt if enabled
+            self._trigger_joypad_interrupt()
+    
+    def _trigger_joypad_interrupt(self):
+        """Trigger joypad interrupt when button is pressed"""
+        # Set joypad interrupt flag (bit 4 of IF register)
+        if_reg = self.read_byte(0xFF0F)
+        if_reg |= 0x10  # Set joypad interrupt bit
+        self.write_byte(0xFF0F, if_reg)
     
     def release_direction(self, direction):
         """Simulate direction release"""
