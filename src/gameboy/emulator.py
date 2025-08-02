@@ -16,15 +16,23 @@ class GameBoy:
         self.debug = debug
         self.memory = Memory()
         self.cpu = CPU(self.memory, debug)
-        self.ppu = PPU(self.memory, debug)
+        
+        # Import and initialize serial port first
+        from .serial import SerialPort
+        self.serial = SerialPort(self.memory)
+        self.serial.set_debug(debug)
+        
+        # Initialize PPU with serial reference for overlay
+        self.ppu = PPU(self.memory, self.serial, debug)
         self.apu = APU(self.memory, debug)
         self.timer = Timer(self.memory)
         
         # Link components to memory for register access
         self.memory.apu = self.apu
         self.memory.timer = self.timer
+        self.memory.serial = self.serial
         
-        self.running = True  # エミュレータを実行状態に設定
+        self.running = True  # エミュレータを実行状態に設定  # エミュレータを実行状態に設定
         
     def load_rom(self, rom_path):
         """Load ROM file into memory"""
@@ -38,8 +46,23 @@ class GameBoy:
                 # Boot ROM - initialize for boot sequence
                 self.cpu.init_for_boot_rom()
             else:
-                # Game ROM - initialize as if boot completed
-                self.cpu.init_for_game_rom()
+                # Game ROM - check if we have boot ROM available
+                try:
+                    with open('roms/dmg_bootrom.bin', 'rb') as boot_f:
+                        boot_rom_data = boot_f.read()
+                    if len(boot_rom_data) == 256:
+                        # Load boot ROM first, then game ROM
+                        self.memory.load_boot_rom(boot_rom_data)
+                        self.cpu.init_for_boot_rom()  # Start from boot ROM
+                        print(f"🔄 Boot ROM loaded, will transition to game ROM")
+                    else:
+                        # No valid boot ROM - use post-boot initialization
+                        self.cpu.init_for_game_rom()
+                        print(f"⚠️  No boot ROM - using post-boot initialization")
+                except FileNotFoundError:
+                    # No boot ROM available - use post-boot initialization
+                    self.cpu.init_for_game_rom()
+                    print(f"⚠️  Boot ROM not found - using post-boot initialization")
                 
             if self.debug:
                 print(f"Loaded ROM: {rom_path} ({len(rom_data)} bytes)")
@@ -132,6 +155,12 @@ class GameBoy:
         # Update APU with CPU cycles (reduced frequency for performance)
         if cpu_cycles % 10 == 0:  # Update APU less frequently
             self.apu.step(cpu_cycles)
+        
+        # Update timer with CPU cycles
+        self.timer.update(cpu_cycles)
+        
+        # Update serial port with CPU cycles  
+        self.serial.update(cpu_cycles)
         
         # Update memory registers with PPU state (direct write to avoid recursion)
         self.memory.io[0x44] = self.ppu.get_ly()  # LY register

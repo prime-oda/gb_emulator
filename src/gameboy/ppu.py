@@ -9,8 +9,9 @@ import logging
 
 
 class PPU:
-    def __init__(self, memory, debug=False):
+    def __init__(self, memory, serial=None, debug=False):
         self.memory = memory
+        self.serial = serial  # Reference to serial port for overlay display
         self.debug = debug
 
         # Configure logging - only to file, not console
@@ -104,9 +105,9 @@ class PPU:
         # Force immediate screen refresh
         pygame.event.pump()  # Process events to ensure window appears
         
-        # Initialize font for FPS display
+        # Initialize font for FPS display and overlay
         pygame.font.init()
-        self.font = pygame.font.Font(None, 24)  # Small font for FPS display
+        self.font = pygame.font.Font(None, 24)  # Font for FPS and serial overlay
 
         print(f"🎮 Pygame window created: {self.screen_width * self.scale}x{self.screen_height * self.scale}")
         print("📺 Look for the Game Boy Emulator window - it should be visible now!")
@@ -124,7 +125,7 @@ class PPU:
         self.clock = pygame.time.Clock()
 
         # Frame rate control
-        self.target_fps = 60  # Game Boy native refresh rate
+        self.target_fps = 60  # Game Boy native refresh rate  # Game Boy native refresh rate
 
     def step(self, cpu_cycles):
         """Update PPU state based on CPU cycles"""
@@ -154,12 +155,12 @@ class PPU:
                     # Trigger V-Blank interrupt
                     self.request_vblank_interrupt()
         else:  # V-Blank period (scanlines 144-153)
-            if self.cycles >= self.scanline_cycles:  # Duration of one scanline in V-Blank
+            if self.mode == 1 and self.cycles >= self.scanline_cycles:  # Duration of one scanline in V-Blank
                 self.scan_line += 1
                 self.cycles = 0
                 if self.scan_line >= 154:
                     self.scan_line = 0
-                    self.mode = 2  # Start new frame
+                    self.mode = 2  # Start new frame  # Start new frame
 
     def render_scanline(self):
         """Render a single scanline to the temporary buffer"""
@@ -433,6 +434,12 @@ class PPU:
         # Blit to screen
         self.screen.blit(scaled_surface, (0, 0))
         
+        # Draw serial output overlay if available
+        if self.serial:
+            serial_output = self.serial.get_output_text()
+            if serial_output:
+                self._draw_serial_overlay(serial_output)
+        
         # Re-enable FPS display for performance monitoring
         self._draw_fps_display(current_time)
 
@@ -678,6 +685,107 @@ class PPU:
             
             # Draw white text on top
             self.screen.blit(surface, (x, y))
+
+    def _draw_serial_overlay(self, serial_output):
+        """Draw serial output as an overlay on the screen"""
+        if not serial_output:
+            return
+        
+        # Configuration for overlay appearance
+        font_size = 16
+        line_height = 18
+        margin_x = 10
+        margin_y = 10
+        max_lines = 20  # Maximum lines to display
+        background_alpha = 180  # Semi-transparent background
+        
+        # Split serial output into lines
+        lines = serial_output.split('\n')
+        
+        # Keep only recent lines if too many
+        if len(lines) > max_lines:
+            lines = lines[-max_lines:]
+        
+        if not lines:
+            return
+        
+        # Calculate overlay dimensions
+        max_line_width = 0
+        for line in lines:
+            if line.strip():  # Skip empty lines for width calculation
+                text_surface = self.font.render(line, True, (255, 255, 255))
+                max_line_width = max(max_line_width, text_surface.get_width())
+        
+        overlay_width = min(max_line_width + 2 * margin_x, self.screen_width * self.scale - 20)
+        overlay_height = len(lines) * line_height + 2 * margin_y
+        
+        # Position overlay in the top-left area but with some offset
+        overlay_x = 10
+        overlay_y = 10
+        
+        # Create semi-transparent background
+        overlay_surface = pygame.Surface((overlay_width, overlay_height))
+        overlay_surface.set_alpha(background_alpha)
+        overlay_surface.fill((0, 0, 0))  # Black background
+        
+        # Draw background
+        self.screen.blit(overlay_surface, (overlay_x, overlay_y))
+        
+        # Draw border
+        pygame.draw.rect(self.screen, (100, 100, 100), 
+                        (overlay_x, overlay_y, overlay_width, overlay_height), 2)
+        
+        # Draw title
+        title_text = "Blargg Test Results"
+        title_surface = self.font.render(title_text, True, (255, 255, 0))  # Yellow title
+        self.screen.blit(title_surface, (overlay_x + margin_x, overlay_y + 5))
+        
+        # Draw a separator line
+        separator_y = overlay_y + 25
+        pygame.draw.line(self.screen, (100, 100, 100), 
+                        (overlay_x + margin_x, separator_y), 
+                        (overlay_x + overlay_width - margin_x, separator_y), 1)
+        
+        # Draw serial output lines
+        y_offset = overlay_y + margin_y + 30  # Start below title and separator
+        
+        for i, line in enumerate(lines):
+            if line.strip():  # Only render non-empty lines
+                # Choose color based on content
+                text_color = (255, 255, 255)  # Default white
+                
+                if "cpu_instrs" in line.lower():
+                    text_color = (0, 255, 255)  # Cyan for title
+                elif "passed" in line.lower():
+                    text_color = (0, 255, 0)    # Green for passed
+                elif "failed" in line.lower() or "error" in line.lower():
+                    text_color = (255, 100, 100)  # Red for failed/error
+                elif ":" in line and any(c.isdigit() for c in line):
+                    text_color = (200, 200, 255)  # Light blue for test results
+                
+                # Render text
+                text_surface = self.font.render(line[:80], True, text_color)  # Limit line length
+                
+                # Check if text fits in overlay width
+                if text_surface.get_width() > overlay_width - 2 * margin_x:
+                    # Truncate long lines
+                    truncated_line = line[:60] + "..."
+                    text_surface = self.font.render(truncated_line, True, text_color)
+                
+                self.screen.blit(text_surface, (overlay_x + margin_x, y_offset))
+                y_offset += line_height
+                
+                # Prevent overflow beyond overlay
+                if y_offset > overlay_y + overlay_height - margin_y:
+                    break
+        
+        # Draw scroll indicator if there are more lines
+        total_lines = len(serial_output.split('\n'))
+        if total_lines > max_lines:
+            extra_lines = total_lines - max_lines
+            scroll_text = f"... ({extra_lines} more lines)"
+            scroll_surface = self.font.render(scroll_text, True, (150, 150, 150))
+            self.screen.blit(scroll_surface, (overlay_x + margin_x, y_offset))
     
     def set_target_fps(self, fps):
         """Set the target frames per second (FPS)"""

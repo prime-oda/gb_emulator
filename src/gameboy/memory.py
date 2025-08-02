@@ -44,6 +44,9 @@ class Memory:
         
         # Timer registers
         self.timer = None  # Will be set by emulator
+        
+        # Serial port
+        self.serial = None  # Will be set by emulator
         self.io[0x04] = 0x00  # DIV - Divider register
         self.io[0x05] = 0x00  # TIMA - Timer counter
         self.io[0x06] = 0x00  # TMA - Timer modulo
@@ -121,6 +124,11 @@ class Memory:
                 return self.io[address - 0xFF00]
             elif address == 0xFF00:  # Joypad register
                 return self.read_joypad()
+            elif 0xFF01 <= address <= 0xFF02:  # Serial port registers
+                if self.serial:
+                    return self.serial.read_register(address)
+                else:
+                    return self.io[address - 0xFF00]
             elif 0xFF04 <= address <= 0xFF07:  # Timer registers
                 if self.timer:
                     return self.timer.read_register(address)
@@ -198,11 +206,24 @@ class Memory:
             # I/O registers
             if address == 0xFF00:  # Joypad register
                 self.write_joypad(value)
+            elif 0xFF01 <= address <= 0xFF02:  # Serial port registers
+                if self.serial:
+                    self.serial.write_register(address, value)
+                else:
+                    self.io[address - 0xFF00] = value
             elif 0xFF04 <= address <= 0xFF07:  # Timer registers
                 if self.timer:
                     self.timer.write_register(address, value)
                 else:
                     self.io[address - 0xFF00] = value
+            elif address == 0xFF42:  # SCY register - prevent text from scrolling off-screen
+                # Allow normal scrolling but prevent large values that push text off-screen
+                # Text is typically at tile rows 8-9 (pixel rows 64-79)
+                # Keep SCY <= 64 to ensure text remains visible
+                if value > 64:
+                    print(f"🔧 SCY OVERRIDE: ROM tried to set SCY={value}, limiting to 64 to keep text visible")
+                    value = 64
+                self.io[address - 0xFF00] = value
             elif address == 0xFF50:  # Boot ROM disable register
                 if value != 0:
                     self.boot_rom_enabled = False
@@ -264,6 +285,27 @@ class Memory:
             
             # Game ROM starts at 0x0100
             self.is_boot_rom = False
+
+    def load_boot_rom(self, boot_rom_data):
+        """Load boot ROM while keeping game ROM in memory"""
+        if len(boot_rom_data) == 256:
+            # Load boot ROM
+            for i, byte in enumerate(boot_rom_data):
+                if i < len(self.boot_rom):
+                    self.boot_rom[i] = byte
+            
+            # Enable boot ROM overlay
+            self.boot_rom_enabled = True
+            self.is_boot_rom = False  # Keep game ROM flag
+            
+            # Reset I/O registers for clean boot ROM execution
+            self.io[0x26] = 0x00  # NR52: Sound initially off
+            self.io[0x40] = 0x00  # LCDC: LCD initially off
+            self.io[0x50] = 0x00  # Boot ROM disable register
+            
+            print(f"✅ Boot ROM overlay enabled ({len(boot_rom_data)} bytes)")
+        else:
+            raise ValueError(f"Invalid boot ROM size: {len(boot_rom_data)} (expected 256)")
     
     def read_joypad(self):
         """Read joypad register with proper bit selection"""

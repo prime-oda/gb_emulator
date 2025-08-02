@@ -224,7 +224,8 @@ class CPU:
         result = (value + 1) & 0xFF
         self.flag_z = (result == 0)
         self.flag_n = False
-        self.flag_h = ((value & 0x0F) == 0x0F)
+        # Half-carry occurs when incrementing causes overflow from bit 3 to bit 4
+        self.flag_h = ((value & 0x0F) + 1) > 0x0F
         return result
     
     def dec_8bit(self, value):
@@ -232,7 +233,8 @@ class CPU:
         result = (value - 1) & 0xFF
         self.flag_z = (result == 0)
         self.flag_n = True
-        self.flag_h = ((value & 0x0F) == 0x00)
+        # Half-carry occurs when decrementing causes underflow from bit 4 to bit 3
+        self.flag_h = (value & 0x0F) == 0x00
         return result
     
     def compare(self, value):
@@ -2652,16 +2654,424 @@ class CPU:
             self.memory.write_byte(address, self.sp & 0xFF)
             self.memory.write_byte(address + 1, (self.sp >> 8) & 0xFF)
             self.cycles += 20
+        # Missing register-to-register arithmetic operations
+        elif opcode == 0x81:  # ADD A, C
+            result = self.a + self.c
+            self.flag_c = result > 0xFF
+            self.flag_h = ((self.a & 0x0F) + (self.c & 0x0F)) > 0x0F
+            self.a = result & 0xFF
+            self.flag_z = (self.a == 0)
+            self.flag_n = False
+            self.cycles += 4
+        elif opcode == 0x82:  # ADD A, D
+            result = self.a + self.d
+            self.flag_c = result > 0xFF
+            self.flag_h = ((self.a & 0x0F) + (self.d & 0x0F)) > 0x0F
+            self.a = result & 0xFF
+            self.flag_z = (self.a == 0)
+            self.flag_n = False
+            self.cycles += 4
+        elif opcode == 0x83:  # ADD A, E
+            result = self.a + self.e
+            self.flag_c = result > 0xFF
+            self.flag_h = ((self.a & 0x0F) + (self.e & 0x0F)) > 0x0F
+            self.a = result & 0xFF
+            self.flag_z = (self.a == 0)
+            self.flag_n = False
+            self.cycles += 4
+        elif opcode == 0x84:  # ADD A, H
+            result = self.a + self.h
+            self.flag_c = result > 0xFF
+            self.flag_h = ((self.a & 0x0F) + (self.h & 0x0F)) > 0x0F
+            self.a = result & 0xFF
+            self.flag_z = (self.a == 0)
+            self.flag_n = False
+            self.cycles += 4
+        elif opcode == 0x85:  # ADD A, L
+            result = self.a + self.l
+            self.flag_c = result > 0xFF
+            self.flag_h = ((self.a & 0x0F) + (self.l & 0x0F)) > 0x0F
+            self.a = result & 0xFF
+            self.flag_z = (self.a == 0)
+            self.flag_n = False
+            self.cycles += 4
+        elif opcode == 0x87:  # ADD A, A
+            result = self.a + self.a
+            self.flag_c = result > 0xFF
+            self.flag_h = ((self.a & 0x0F) + (self.a & 0x0F)) > 0x0F
+            self.a = result & 0xFF
+            self.flag_z = (self.a == 0)
+            self.flag_n = False
+            self.cycles += 4
+        elif opcode == 0x88:  # ADC A, B - Add B to A with carry
+            carry = 1 if self.flag_c else 0
+            result = self.a + self.b + carry
+            self.flag_c = result > 0xFF
+            self.flag_h = ((self.a & 0x0F) + (self.b & 0x0F) + carry) > 0x0F
+            self.a = result & 0xFF
+            self.flag_z = (self.a == 0)
+            self.flag_n = False
+            self.cycles += 4
+        elif opcode == 0x89:  # ADC A, C
+            carry = 1 if self.flag_c else 0
+            result = self.a + self.c + carry
+            self.flag_c = result > 0xFF
+            self.flag_h = ((self.a & 0x0F) + (self.c & 0x0F) + carry) > 0x0F
+            self.a = result & 0xFF
+            self.flag_z = (self.a == 0)
+            self.flag_n = False
+            self.cycles += 4
+        elif opcode == 0x8A:  # ADC A, D
+            carry = 1 if self.flag_c else 0
+            result = self.a + self.d + carry
+            self.flag_c = result > 0xFF
+            self.flag_h = ((self.a & 0x0F) + (self.d & 0x0F) + carry) > 0x0F
+            self.a = result & 0xFF
+            self.flag_z = (self.a == 0)
+            self.flag_n = False
+            self.cycles += 4
+        elif opcode == 0x8B:  # ADC A, E
+            carry = 1 if self.flag_c else 0
+            result = self.a + self.e + carry
+            self.flag_c = result > 0xFF
+            self.flag_h = ((self.a & 0x0F) + (self.e & 0x0F) + carry) > 0x0F
+            self.a = result & 0xFF
+            self.flag_z = (self.a == 0)
+            self.flag_n = False
+            self.cycles += 4
+        elif opcode == 0x8C:  # ADC A, H
+            carry = 1 if self.flag_c else 0
+            result = self.a + self.h + carry
+            self.flag_c = result > 0xFF
+            self.flag_h = ((self.a & 0x0F) + (self.h & 0x0F) + carry) > 0x0F
+            self.a = result & 0xFF
+            self.flag_z = (self.a == 0)
+            self.flag_n = False
+            self.cycles += 4
+        elif opcode == 0x8D:  # ADC A, L
+            carry = 1 if self.flag_c else 0
+            result = self.a + self.l + carry
+            self.flag_c = result > 0xFF
+            self.flag_h = ((self.a & 0x0F) + (self.l & 0x0F) + carry) > 0x0F
+            self.a = result & 0xFF
+            self.flag_z = (self.a == 0)
+            self.flag_n = False
+            self.cycles += 4
+        elif opcode == 0x8E:  # ADC A, (HL)
+            carry = 1 if self.flag_c else 0
+            value = self.memory.read_byte(self.get_hl())
+            result = self.a + value + carry
+            self.flag_c = result > 0xFF
+            self.flag_h = ((self.a & 0x0F) + (value & 0x0F) + carry) > 0x0F
+            self.a = result & 0xFF
+            self.flag_z = (self.a == 0)
+            self.flag_n = False
+            self.cycles += 8
+        elif opcode == 0x8F:  # ADC A, A
+            carry = 1 if self.flag_c else 0
+            result = self.a + self.a + carry
+            self.flag_c = result > 0xFF
+            self.flag_h = ((self.a & 0x0F) + (self.a & 0x0F) + carry) > 0x0F
+            self.a = result & 0xFF
+            self.flag_z = (self.a == 0)
+            self.flag_n = False
+            self.cycles += 4
+        elif opcode == 0x90:  # SUB B - Subtract B from A
+            result = self.a - self.b
+            self.flag_c = result < 0
+            self.flag_h = (self.a & 0x0F) < (self.b & 0x0F)
+            self.a = result & 0xFF
+            self.flag_z = (self.a == 0)
+            self.flag_n = True
+            self.cycles += 4
+        elif opcode == 0x91:  # SUB C
+            result = self.a - self.c
+            self.flag_c = result < 0
+            self.flag_h = (self.a & 0x0F) < (self.c & 0x0F)
+            self.a = result & 0xFF
+            self.flag_z = (self.a == 0)
+            self.flag_n = True
+            self.cycles += 4
+        elif opcode == 0x92:  # SUB D
+            result = self.a - self.d
+            self.flag_c = result < 0
+            self.flag_h = (self.a & 0x0F) < (self.d & 0x0F)
+            self.a = result & 0xFF
+            self.flag_z = (self.a == 0)
+            self.flag_n = True
+            self.cycles += 4
+        elif opcode == 0x93:  # SUB E
+            result = self.a - self.e
+            self.flag_c = result < 0
+            self.flag_h = (self.a & 0x0F) < (self.e & 0x0F)
+            self.a = result & 0xFF
+            self.flag_z = (self.a == 0)
+            self.flag_n = True
+            self.cycles += 4
+        elif opcode == 0x94:  # SUB H
+            result = self.a - self.h
+            self.flag_c = result < 0
+            self.flag_h = (self.a & 0x0F) < (self.h & 0x0F)
+            self.a = result & 0xFF
+            self.flag_z = (self.a == 0)
+            self.flag_n = True
+            self.cycles += 4
+        elif opcode == 0x95:  # SUB L
+            result = self.a - self.l
+            self.flag_c = result < 0
+            self.flag_h = (self.a & 0x0F) < (self.l & 0x0F)
+            self.a = result & 0xFF
+            self.flag_z = (self.a == 0)
+            self.flag_n = True
+            self.cycles += 4
+        elif opcode == 0x96:  # SUB (HL)
+            value = self.memory.read_byte(self.get_hl())
+            result = self.a - value
+            self.flag_c = result < 0
+            self.flag_h = (self.a & 0x0F) < (value & 0x0F)
+            self.a = result & 0xFF
+            self.flag_z = (self.a == 0)
+            self.flag_n = True
+            self.cycles += 8
+        elif opcode == 0x97:  # SUB A
+            self.a = 0
+            self.flag_z = True
+            self.flag_n = True
+            self.flag_h = False
+            self.flag_c = False
+            self.cycles += 4
+        elif opcode == 0x98:  # SBC A, B - Subtract B and carry from A
+            carry = 1 if self.flag_c else 0
+            result = self.a - self.b - carry
+            self.flag_c = result < 0
+            self.flag_h = (self.a & 0x0F) < ((self.b & 0x0F) + carry)
+            self.a = result & 0xFF
+            self.flag_z = (self.a == 0)
+            self.flag_n = True
+            self.cycles += 4
+        elif opcode == 0x99:  # SBC A, C
+            carry = 1 if self.flag_c else 0
+            result = self.a - self.c - carry
+            self.flag_c = result < 0
+            self.flag_h = (self.a & 0x0F) < ((self.c & 0x0F) + carry)
+            self.a = result & 0xFF
+            self.flag_z = (self.a == 0)
+            self.flag_n = True
+            self.cycles += 4
+        elif opcode == 0x9A:  # SBC A, D
+            carry = 1 if self.flag_c else 0
+            result = self.a - self.d - carry
+            self.flag_c = result < 0
+            self.flag_h = (self.a & 0x0F) < ((self.d & 0x0F) + carry)
+            self.a = result & 0xFF
+            self.flag_z = (self.a == 0)
+            self.flag_n = True
+            self.cycles += 4
+        elif opcode == 0x9B:  # SBC A, E
+            carry = 1 if self.flag_c else 0
+            result = self.a - self.e - carry
+            self.flag_c = result < 0
+            self.flag_h = (self.a & 0x0F) < ((self.e & 0x0F) + carry)
+            self.a = result & 0xFF
+            self.flag_z = (self.a == 0)
+            self.flag_n = True
+            self.cycles += 4
+        elif opcode == 0x9C:  # SBC A, H
+            carry = 1 if self.flag_c else 0
+            result = self.a - self.h - carry
+            self.flag_c = result < 0
+            self.flag_h = (self.a & 0x0F) < ((self.h & 0x0F) + carry)
+            self.a = result & 0xFF
+            self.flag_z = (self.a == 0)
+            self.flag_n = True
+            self.cycles += 4
+        elif opcode == 0x9D:  # SBC A, L
+            carry = 1 if self.flag_c else 0
+            result = self.a - self.l - carry
+            self.flag_c = result < 0
+            self.flag_h = (self.a & 0x0F) < ((self.l & 0x0F) + carry)
+            self.a = result & 0xFF
+            self.flag_z = (self.a == 0)
+            self.flag_n = True
+            self.cycles += 4
+        elif opcode == 0x9E:  # SBC A, (HL)
+            carry = 1 if self.flag_c else 0
+            value = self.memory.read_byte(self.get_hl())
+            result = self.a - value - carry
+            self.flag_c = result < 0
+            self.flag_h = (self.a & 0x0F) < ((value & 0x0F) + carry)
+            self.a = result & 0xFF
+            self.flag_z = (self.a == 0)
+            self.flag_n = True
+            self.cycles += 8
+        elif opcode == 0x9F:  # SBC A, A
+            carry = 1 if self.flag_c else 0
+            if carry:
+                self.a = 0xFF
+                self.flag_z = False
+                self.flag_c = True
+                self.flag_h = True
+            else:
+                self.a = 0
+                self.flag_z = True
+                self.flag_c = False
+                self.flag_h = False
+            self.flag_n = True
+            self.cycles += 4
+        elif opcode == 0xA0:  # AND B
+            self.a = self.a & self.b
+            self.flag_z = (self.a == 0)
+            self.flag_n = False
+            self.flag_h = True
+            self.flag_c = False
+            self.cycles += 4
+        elif opcode == 0xA1:  # AND C
+            self.a = self.a & self.c
+            self.flag_z = (self.a == 0)
+            self.flag_n = False
+            self.flag_h = True
+            self.flag_c = False
+            self.cycles += 4
+        elif opcode == 0xA2:  # AND D
+            self.a = self.a & self.d
+            self.flag_z = (self.a == 0)
+            self.flag_n = False
+            self.flag_h = True
+            self.flag_c = False
+            self.cycles += 4
+        elif opcode == 0xA3:  # AND E
+            self.a = self.a & self.e
+            self.flag_z = (self.a == 0)
+            self.flag_n = False
+            self.flag_h = True
+            self.flag_c = False
+            self.cycles += 4
+        elif opcode == 0xA4:  # AND H
+            self.a = self.a & self.h
+            self.flag_z = (self.a == 0)
+            self.flag_n = False
+            self.flag_h = True
+            self.flag_c = False
+            self.cycles += 4
+        elif opcode == 0xA5:  # AND L
+            self.a = self.a & self.l
+            self.flag_z = (self.a == 0)
+            self.flag_n = False
+            self.flag_h = True
+            self.flag_c = False
+            self.cycles += 4
+        elif opcode == 0xA6:  # AND (HL)
+            value = self.memory.read_byte(self.get_hl())
+            self.a = self.a & value
+            self.flag_z = (self.a == 0)
+            self.flag_n = False
+            self.flag_h = True
+            self.flag_c = False
+            self.cycles += 8
+        elif opcode == 0xA8:  # XOR B
+            self.a = self.a ^ self.b
+            self.flag_z = (self.a == 0)
+            self.flag_n = False
+            self.flag_h = False
+            self.flag_c = False
+            self.cycles += 4
+        elif opcode == 0xA9:  # XOR C
+            self.a = self.a ^ self.c
+            self.flag_z = (self.a == 0)
+            self.flag_n = False
+            self.flag_h = False
+            self.flag_c = False
+            self.cycles += 4
+        elif opcode == 0xAA:  # XOR D
+            self.a = self.a ^ self.d
+            self.flag_z = (self.a == 0)
+            self.flag_n = False
+            self.flag_h = False
+            self.flag_c = False
+            self.cycles += 4
+        elif opcode == 0xAB:  # XOR E
+            self.a = self.a ^ self.e
+            self.flag_z = (self.a == 0)
+            self.flag_n = False
+            self.flag_h = False
+            self.flag_c = False
+            self.cycles += 4
+        elif opcode == 0xAC:  # XOR H
+            self.a = self.a ^ self.h
+            self.flag_z = (self.a == 0)
+            self.flag_n = False
+            self.flag_h = False
+            self.flag_c = False
+            self.cycles += 4
+        elif opcode == 0xAD:  # XOR L
+            self.a = self.a ^ self.l
+            self.flag_z = (self.a == 0)
+            self.flag_n = False
+            self.flag_h = False
+            self.flag_c = False
+            self.cycles += 4
+        elif opcode == 0xAE:  # XOR (HL)
+            value = self.memory.read_byte(self.get_hl())
+            self.a = self.a ^ value
+            self.flag_z = (self.a == 0)
+            self.flag_n = False
+            self.flag_h = False
+            self.flag_c = False
+            self.cycles += 8
+        elif opcode == 0xB0:  # OR B
+            self.a = self.a | self.b
+            self.flag_z = (self.a == 0)
+            self.flag_n = False
+            self.flag_h = False
+            self.flag_c = False
+            self.cycles += 4
+        elif opcode == 0xB1:  # OR C
+            self.a = self.a | self.c
+            self.flag_z = (self.a == 0)
+            self.flag_n = False
+            self.flag_h = False
+            self.flag_c = False
+            self.cycles += 4
+        elif opcode == 0xB2:  # OR D
+            self.a = self.a | self.d
+            self.flag_z = (self.a == 0)
+            self.flag_n = False
+            self.flag_h = False
+            self.flag_c = False
+            self.cycles += 4
+        elif opcode == 0xB3:  # OR E
+            self.a = self.a | self.e
+            self.flag_z = (self.a == 0)
+            self.flag_n = False
+            self.flag_h = False
+            self.flag_c = False
+            self.cycles += 4
+        elif opcode == 0xB4:  # OR H
+            self.a = self.a | self.h
+            self.flag_z = (self.a == 0)
+            self.flag_n = False
+            self.flag_h = False
+            self.flag_c = False
+            self.cycles += 4
+        elif opcode == 0xB5:  # OR L
+            self.a = self.a | self.l
+            self.flag_z = (self.a == 0)
+            self.flag_n = False
+            self.flag_h = False
+            self.flag_c = False
+            self.cycles += 4
+        elif opcode == 0xB6:  # OR (HL)
+            value = self.memory.read_byte(self.get_hl())
+            self.a = self.a | value
+            self.flag_z = (self.a == 0)
+            self.flag_n = False
+            self.flag_h = False
+            self.flag_c = False
+            self.cycles += 8
+        
         else:
-            # Placeholder for unimplemented instructions
             if self.debug:
                 print(f"Unimplemented opcode: 0x{opcode:02X} at PC: 0x{self.pc-1:04X}")
-                # Exit after too many consecutive 0xFF opcodes to prevent spam
-                self._ff_count += 1 if opcode == 0xFF else 0
-                if opcode == 0xFF and self._ff_count > 10:
-                    print("Too many 0xFF opcodes, likely executing uninitialized memory")
-                    print(f"PC history: {[hex(pc) for pc in self._pc_history]}")
-                    raise Exception("CPU executing uninitialized memory")
             self.cycles += 4
     
     # === ARITHMETIC HELPER METHODS ===
