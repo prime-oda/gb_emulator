@@ -1383,6 +1383,10 @@ class CPU:
         elif opcode == 0x95:  # SUB L
             self.a = self.sub_8bit(self.a, self.l)
             self.cycles += 4
+        elif opcode == 0x96:  # SUB (HL)
+            value = self.memory.read_byte(self.get_hl())
+            self.a = self.sub_8bit(self.a, value)
+            self.cycles += 8
         elif opcode == 0x97:  # SUB A (always results in 0)
             self.a = self.sub_8bit(self.a, self.a)
             self.cycles += 4
@@ -1450,6 +1454,10 @@ class CPU:
         elif opcode == 0x8D:  # ADC A,L
             self.a = self.adc_8bit(self.a, self.l)
             self.cycles += 4
+        elif opcode == 0x8E:  # ADC A,(HL)
+            value = self.memory.read_byte(self.get_hl())
+            self.a = self.adc_8bit(self.a, value)
+            self.cycles += 8
         elif opcode == 0x8F:  # ADC A,A
             self.a = self.adc_8bit(self.a, self.a)
             self.cycles += 4
@@ -1472,6 +1480,10 @@ class CPU:
         elif opcode == 0x9D:  # SBC A,L
             self.a = self.sbc_8bit(self.a, self.l)
             self.cycles += 4
+        elif opcode == 0x9E:  # SBC A,(HL)
+            value = self.memory.read_byte(self.get_hl())
+            self.a = self.sbc_8bit(self.a, value)
+            self.cycles += 8
         elif opcode == 0x9F:  # SBC A,A
             self.a = self.sbc_8bit(self.a, self.a)
             self.cycles += 4
