@@ -11,6 +11,13 @@ from .apu import APU
 from .timer import Timer
 
 
+
+# Game Boy timing constants
+GB_CPU_FREQ = 4194304  # 4.194304 MHz
+GB_FRAME_RATE = 59.7   # ~59.7 Hz
+CYCLES_PER_FRAME = int(GB_CPU_FREQ / GB_FRAME_RATE)  # ~70224 cycles per frame
+CYCLES_PER_SCANLINE = 456  # 456 cycles per scanline
+
 class GameBoy:
     def __init__(self, debug=False):
         self.debug = debug
@@ -93,6 +100,11 @@ class GameBoy:
         
         print("Starting main emulation loop...")
         try:
+            # Frame timing control
+            clock = pygame.time.Clock()
+            target_fps = 60  # Close to Game Boy frame rate
+            frame_cycles = 0
+            
             while self.running:
                 # Execute one CPU instruction
                 cycles = self.step()
@@ -100,6 +112,9 @@ class GameBoy:
                 
                 # Update timer
                 self.timer.update(cycles)
+                
+                # Update PPU for cycle-accurate timing
+                self.ppu.step(cycles)
                 
                 # Debug output for CPU cycles and state
                 if self.debug and cycle_count % 20000000 == 0:
@@ -133,6 +148,13 @@ class GameBoy:
                         traceback.print_exc()
                         break
                         
+                        
+                # Frame timing control
+                frame_cycles += cycles
+                if frame_cycles >= CYCLES_PER_FRAME:
+                    frame_cycles = 0
+                    clock.tick(target_fps)
+                
         except KeyboardInterrupt:
             print(f"\nEmulation stopped. Total cycles: {cycle_count}, Frames: {frame_count}")
         except Exception as e:

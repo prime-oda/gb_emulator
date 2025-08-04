@@ -937,7 +937,31 @@ class PPU:
             # Set pixel in frame buffer
             self.frame_buffer[self.scan_line][screen_x] = palette_color
     
-    def render_vram_debug(self):
+    
+    def step(self, cycles):
+        """Step PPU by specified cycles for accurate timing"""
+        if not hasattr(self, 'ppu_cycles'):
+            self.ppu_cycles = 0
+        
+        self.ppu_cycles += cycles
+        
+        # Update scanline every 456 cycles
+        while self.ppu_cycles >= 456:
+            self.ppu_cycles -= 456
+            ly = self.memory.read_byte(0xFF44)
+            ly = (ly + 1) % 154  # 154 scanlines total
+            self.memory.write_byte(0xFF44, ly)
+            
+            # Set VBlank interrupt when entering VBlank period
+            if ly == 144:
+                if_reg = self.memory.read_byte(0xFF0F)
+                self.memory.write_byte(0xFF0F, if_reg | 0x01)
+            elif ly == 0:
+                # Reset VBlank interrupt when leaving VBlank
+                if_reg = self.memory.read_byte(0xFF0F)
+                self.memory.write_byte(0xFF0F, if_reg & ~0x01)
+
+def render_vram_debug(self):
         """Debug method to render VRAM content directly when LCD is disabled"""
         if self.scan_line >= self.screen_height:
             return
