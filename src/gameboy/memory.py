@@ -38,6 +38,9 @@ class Memory:
         self.io[0x49] = 0xFF  # OBP1: Object palette 1
         self.io[0x00] = 0x3F  # Joypad: all buttons released
         
+        # Initialize interrupt registers - CRITICAL for timer tests
+        self.io[0x0F] = 0x00  # IF - Interrupt Flag register (clear all flags)
+        
         # Joypad state
         self.joypad_buttons = 0x0F  # All buttons released
         self.joypad_directions = 0x0F  # All directions released
@@ -50,7 +53,7 @@ class Memory:
         self.io[0x04] = 0x00  # DIV - Divider register
         self.io[0x05] = 0x00  # TIMA - Timer counter
         self.io[0x06] = 0x00  # TMA - Timer modulo
-        self.io[0x07] = 0x00  # TAC - Timer control
+        self.io[0x07] = 0x00  # TAC - Timer control  # TAC - Timer control
         
     def read_byte(self, address):
         """Read a byte from the specified memory address"""

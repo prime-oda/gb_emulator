@@ -939,25 +939,38 @@ class PPU:
     
     
     def step(self, cycles):
-        """Step PPU by specified cycles for accurate timing"""
+        """Step PPU by specified cycles for accurate LCD timing"""
         if not hasattr(self, 'ppu_cycles'):
             self.ppu_cycles = 0
         
         self.ppu_cycles += cycles
         
-        # Update scanline every 456 cycles
+        # Process scanlines with precise 456-cycle timing
         while self.ppu_cycles >= 456:
             self.ppu_cycles -= 456
             ly = self.memory.read_byte(0xFF44)
-            ly = (ly + 1) % 154  # 154 scanlines total
+            
+            # Handle LCD modes for current scanline
+            if ly < 144:
+                # Visible scanline (0-143)
+                # Mode 2 (OAM scan): 80 cycles
+                # Mode 3 (VRAM access): 172 cycles  
+                # Mode 0 (H-Blank): 204 cycles
+                # Total: 456 cycles per scanline
+                pass  # Scanline rendering handled elsewhere
+            elif ly >= 144 and ly < 154:
+                # V-Blank period (144-153)
+                if ly == 144:
+                    # Entering V-Blank - trigger V-Blank interrupt
+                    if_reg = self.memory.read_byte(0xFF0F)
+                    self.memory.write_byte(0xFF0F, if_reg | 0x01)
+            
+            # Advance to next scanline
+            ly = (ly + 1) % 154  # 154 scanlines total (144 visible + 10 V-Blank)
             self.memory.write_byte(0xFF44, ly)
             
-            # Set VBlank interrupt when entering VBlank period
-            if ly == 144:
-                if_reg = self.memory.read_byte(0xFF0F)
-                self.memory.write_byte(0xFF0F, if_reg | 0x01)
-            elif ly == 0:
-                # Reset VBlank interrupt when leaving VBlank
+            # Clear V-Blank interrupt when leaving V-Blank period
+            if ly == 0:
                 if_reg = self.memory.read_byte(0xFF0F)
                 self.memory.write_byte(0xFF0F, if_reg & ~0x01)
 

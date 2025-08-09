@@ -166,23 +166,23 @@ class GameBoy:
         pygame.quit()
     
     def step(self):
-        """Execute one emulation step"""
+        """Execute one emulation step with precise timing synchronization"""
         cycles_before = self.cpu.cycles
         self.cpu.step()
         cpu_cycles = self.cpu.cycles - cycles_before
         
-        # Update PPU with CPU cycles
-        self.ppu.step(cpu_cycles)
-        
-        # Update APU with CPU cycles (reduced frequency for performance)
-        if cpu_cycles % 10 == 0:  # Update APU less frequently
-            self.apu.step(cpu_cycles)
-        
-        # Update timer with CPU cycles
+        # Update timer FIRST for accurate interrupt timing
+        # This is critical for 02-interrupts.gb test
         self.timer.update(cpu_cycles)
+        
+        # Update PPU with CPU cycles (accurate LCD timing)
+        self.ppu.step(cpu_cycles)
         
         # Update serial port with CPU cycles  
         self.serial.update(cpu_cycles)
+        
+        # Update APU with all CPU cycles for accurate audio timing
+        self.apu.step(cpu_cycles)
         
         # Update memory registers with PPU state (direct write to avoid recursion)
         self.memory.io[0x44] = self.ppu.get_ly()  # LY register
