@@ -48,6 +48,13 @@ class GameBoy:
                 rom_data = f.read()
             self.memory.load_rom(rom_data)
             
+            # mem_timing.gb検出と64サイクル精度モード自動有効化
+            if 'mem_timing' in rom_path.lower():
+                print(f"🎯 mem_timing.gb検出: 64サイクル精度タイマーモード有効化")
+                self.timer.enable_mem_timing_mode()
+                if hasattr(self.memory, 'debug'):
+                    self.memory.debug = True  # デバッグログ有効化
+            
             # Initialize CPU based on ROM type
             if len(rom_data) == 256:
                 # Boot ROM - initialize for boot sequence
@@ -76,6 +83,11 @@ class GameBoy:
                 if len(rom_data) > 256:
                     print(f"ROM banks: {self.memory.rom_banks}")
                 print(f"Initial PC: 0x{self.cpu.pc:04X}")
+                
+                # mem_timing.gb用の詳細情報表示
+                if 'mem_timing' in rom_path.lower():
+                    print(f"🔧 Timer設定: TAC=0x{self.timer.memory.io[0x07]:02X}, TIMA=0x{self.timer.memory.io[0x05]:02X}")
+                    
         except FileNotFoundError:
             raise FileNotFoundError(f"ROM file not found: {rom_path}")
     
@@ -172,8 +184,18 @@ class GameBoy:
         cpu_cycles = self.cpu.cycles - cycles_before
         
         # Update timer FIRST for accurate interrupt timing
-        # This is critical for 02-interrupts.gb test
+        # This is critical for 02-interrupts.gb test and mem_timing.gb
         self.timer.update(cpu_cycles)
+        
+        # mem_timing.gb専用デバッグ情報
+        if hasattr(self.timer, 'mem_timing_enabled') and self.timer.mem_timing_enabled:
+            # 重要なタイマー状態変化をログ
+            tac = self.timer.memory.io[0x07]
+            tima = self.timer.memory.io[0x05]
+            if tac & 0x04 and self.debug:  # タイマー有効かつデバッグモード
+                timer_state = self.timer.get_precise_timer_state(0)
+                if timer_state['will_increment']:
+                    print(f"🔔 TIMA increment予定: current=0x{tima:02X}, cycles_to_next={timer_state['cycles_to_next']}")
         
         # Update PPU with CPU cycles (accurate LCD timing)
         self.ppu.step(cpu_cycles)

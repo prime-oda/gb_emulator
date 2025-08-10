@@ -8,10 +8,89 @@ Game Boy CPU (Sharp LR35902) emulation
 Based on the Z80 architecture with some modifications.
 """
 
+class MemoryAccessScheduler:
+    """サイクル精度メモリアクセススケジューラ
+    
+    mem_timing.gb要件に対応するため、メモリアクセスを正確な
+    サイクルタイミングで実行するスケジューラ
+    """
+    def __init__(self):
+        self.scheduled_accesses = []  # [(cycle, operation, address, value, target)]
+    
+    def schedule_read(self, cycle, address, target_register):
+        """メモリ読み取りをスケジュール
+        
+        Args:
+            cycle: 実行するサイクル番号
+            address: 読み取りアドレス 
+            target_register: 結果を格納するレジスタ名('A', 'B', 'temp_inc'等)
+        """
+        self.scheduled_accesses.append((cycle, 'read', address, None, target_register))
+    
+    def schedule_write(self, cycle, address, value):
+        """メモリ書き込みをスケジュール
+        
+        Args:
+            cycle: 実行するサイクル番号
+            address: 書き込みアドレス
+            value: 書き込み値
+        """
+        self.scheduled_accesses.append((cycle, 'write', address, value, None))
+    
+    def execute_due_accesses(self, current_cycle, memory, cpu):
+        """指定サイクルまでの遅延アクセスを実行
+        
+        Args:
+            current_cycle: 現在のサイクル番号
+            memory: Memoryオブジェクト
+            cpu: CPUオブジェクト
+            
+        Returns:
+            実行されたアクセスのリスト
+        """
+        executed = []
+        remaining = []
+        
+        for access in self.scheduled_accesses:
+            cycle, operation, address, value, target = access
+            if cycle <= current_cycle:
+                if operation == 'read':
+                    result = memory.read_byte(address)
+                    # ターゲットレジスタに結果を設定
+                    if target == 'A':
+                        cpu.a = result
+                    elif target == 'B':
+                        cpu.b = result
+                    elif target == 'C':
+                        cpu.c = result
+                    elif target == 'D':
+                        cpu.d = result
+                    elif target == 'E':
+                        cpu.e = result
+                    elif target == 'H':
+                        cpu.h = result
+                    elif target == 'L':
+                        cpu.l = result
+                    elif target.startswith('temp_'):
+                        # 一時的な値（RMW操作用）
+                        setattr(cpu, target, result)
+                    executed.append((access, result))
+                elif operation == 'write':
+                    memory.write_byte(address, value)
+                    executed.append((access, None))
+            else:
+                remaining.append(access)
+        
+        self.scheduled_accesses = remaining
+        return executed
+
 class CPU:
     def __init__(self, memory, debug=False):
         self.memory = memory
         self.debug = debug
+        
+        # サイクル精度メモリアクセススケジューラ
+        self.memory_scheduler = MemoryAccessScheduler()
         
         # 8-bit registers
         self.a = 0x01  # Accumulator
@@ -447,6 +526,8 @@ class CPU:
             else:
                 # No interrupt, CPU remains halted - consume 4 cycles
                 self.cycles += 4
+                # Execute scheduled memory accesses even when halted
+                self.memory_scheduler.execute_due_accesses(self.cycles, self.memory, self)
                 return
         
         # Handle interrupts before fetching next instruction
@@ -459,16 +540,26 @@ class CPU:
             opcode = self.fetch_byte()
             self.execute_instruction(opcode)  # First execution
             
+            # Execute scheduled memory accesses after first execution
+            self.memory_scheduler.execute_due_accesses(self.cycles, self.memory, self)
+            
             # Reset PC to execute the same instruction again
             self.pc = (self.pc - 1) & 0xFFFF
             opcode = self.fetch_byte()
             self.execute_instruction(opcode)  # Second execution (the bug effect)
+            
+            # Execute scheduled memory accesses after second execution
+            self.memory_scheduler.execute_due_accesses(self.cycles, self.memory, self)
             
             self.halt_bug_active = False  # Clear the flag after double execution
         else:
             # Normal instruction execution
             opcode = self.fetch_byte()
             self.execute_instruction(opcode)
+            
+            # サイクル精度メモリアクセス実行
+            # 命令実行後、現在のサイクルまでにスケジュールされたアクセスを実行
+            self.memory_scheduler.execute_due_accesses(self.cycles, self.memory, self)
     
     def execute_instruction(self, opcode):
         """Execute instruction based on opcode"""
@@ -521,7 +612,11 @@ class CPU:
         
         # Memory operations
         elif opcode == 0x22:  # LD (HL+), A - Load A into address HL, then increment HL
-            self.memory.write_byte(self.get_hl(), self.a)
+            # サイクル精度メモリアクセス: 最後のサイクル（8サイクル後）で書き込み
+            hl_addr = self.get_hl()
+            target_cycle = self.cycles + 8
+            self.memory_scheduler.schedule_write(target_cycle, hl_addr, self.a)
+            # HLのインクリメントは即座に実行（メモリアクセスとは独立）
             self.set_hl((self.get_hl() + 1) & 0xFFFF)
             self.cycles += 8
         elif opcode == 0x32:  # LD (HL-), A - Load A into address HL, then decrement HL
@@ -618,7 +713,9 @@ class CPU:
             self.l = self.memory.read_byte(self.get_hl())
             self.cycles += 8
         elif opcode == 0x7E:  # LD A, (HL)
-            self.a = self.memory.read_byte(self.get_hl())
+            # サイクル精度メモリアクセス: 最後のサイクル（8サイクル後）で読み取り
+            target_cycle = self.cycles + 8
+            self.memory_scheduler.schedule_read(target_cycle, self.get_hl(), 'A')
             self.cycles += 8
         
         # Load from register to memory
@@ -641,7 +738,9 @@ class CPU:
             self.memory.write_byte(self.get_hl(), self.l)
             self.cycles += 8
         elif opcode == 0x77:  # LD (HL), A
-            self.memory.write_byte(self.get_hl(), self.a)
+            # サイクル精度メモリアクセス: 最後のサイクル（8サイクル後）で書き込み
+            target_cycle = self.cycles + 8
+            self.memory_scheduler.schedule_write(target_cycle, self.get_hl(), self.a)
             self.cycles += 8
         
         # Jump and branch instructions
@@ -827,9 +926,18 @@ class CPU:
             self.l = self.dec_8bit(self.l)
             self.cycles += 4
         elif opcode == 0x34:  # INC (HL)
-            value = self.memory.read_byte(self.get_hl())
+            # Read-Modify-Write操作: 読み取り→計算→書き込み
+            # 読み取り: 8サイクル後（次から最後のサイクル）
+            # 書き込み: 12サイクル後（最後のサイクル）
+            hl_addr = self.get_hl()
+            
+            # 即座に値を読み取って計算（後でサイクル精度版に改良予定）
+            value = self.memory.read_byte(hl_addr)
             result = self.inc_8bit(value)
-            self.memory.write_byte(self.get_hl(), result)
+            
+            # 書き込みをスケジュール
+            write_cycle = self.cycles + 12
+            self.memory_scheduler.schedule_write(write_cycle, hl_addr, result)
             self.cycles += 12
         elif opcode == 0x35:  # DEC (HL)
             value = self.memory.read_byte(self.get_hl())
