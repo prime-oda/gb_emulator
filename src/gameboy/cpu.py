@@ -254,12 +254,9 @@ class CPU:
         self.flag_c = (self.a < value)
     
     def execute_cb_instruction(self, opcode):
-        """Execute CB-prefixed instructions (bit operations)"""
-        # Temporarily disable debug output to reduce noise
-        # if self.debug:
-        #     print(f"CB Instruction: 0x{opcode:02X}")
+        """Execute CB-prefixed instructions (bit operations) with accurate timing"""
         
-        # BIT operations - test bit n in register
+        # BIT operations (0x40-0x7F) - test bit n in register
         if opcode >= 0x40 and opcode <= 0x7F:
             bit = (opcode - 0x40) // 8
             reg = opcode & 0x07
@@ -280,15 +277,15 @@ class CPU:
                 hl_addr = (self.h << 8) | self.l
                 value = self.memory.read_byte(hl_addr)
                 self.flag_z = not bool(value & (1 << bit))
-                self.cycles += 4  # Extra cycles for memory access
+                self.cycles += 4  # Extra 4 T-cycles for memory access (12T total)
             elif reg == 7:  # A
                 self.flag_z = not bool(self.a & (1 << bit))
             
             self.flag_n = False
             self.flag_h = True
-            self.cycles += 8
+            self.cycles += 8  # Base 8 T-cycles for BIT operations
         
-        # SET operations - set bit n in register
+        # SET operations (0xC0-0xFF) - set bit n in register
         elif opcode >= 0xC0 and opcode <= 0xFF:
             bit = (opcode - 0xC0) // 8
             reg = opcode & 0x07
@@ -310,13 +307,13 @@ class CPU:
                 value = self.memory.read_byte(hl_addr)
                 value |= (1 << bit)
                 self.memory.write_byte(hl_addr, value)
-                self.cycles += 8  # Extra cycles for memory access
+                self.cycles += 8  # Extra 8 T-cycles for memory access (16T total)
             elif reg == 7:  # A
                 self.a |= (1 << bit)
             
-            self.cycles += 8
+            self.cycles += 8  # Base 8 T-cycles for SET operations
         
-        # RES operations - reset bit n in register
+        # RES operations (0x80-0xBF) - reset bit n in register
         elif opcode >= 0x80 and opcode <= 0xBF:
             bit = (opcode - 0x80) // 8
             reg = opcode & 0x07
@@ -338,13 +335,13 @@ class CPU:
                 value = self.memory.read_byte(hl_addr)
                 value &= ~(1 << bit)
                 self.memory.write_byte(hl_addr, value)
-                self.cycles += 8  # Extra cycles for memory access
+                self.cycles += 8  # Extra 8 T-cycles for memory access (16T total)
             elif reg == 7:  # A
                 self.a &= ~(1 << bit)
             
-            self.cycles += 8
+            self.cycles += 8  # Base 8 T-cycles for RES operations
         
-        # Rotate and shift operations
+        # Rotate and shift operations (0x00-0x3F)
         elif opcode >= 0x00 and opcode <= 0x3F:
             reg = opcode & 0x07
             operation = opcode >> 3
@@ -365,7 +362,7 @@ class CPU:
             elif reg == 6:  # (HL)
                 hl_addr = (self.h << 8) | self.l
                 value = self.memory.read_byte(hl_addr)
-                self.cycles += 8  # Extra cycles for memory access
+                self.cycles += 8  # Extra 8 T-cycles for memory access (16T total)
             elif reg == 7:  # A
                 value = self.a
             
@@ -425,7 +422,7 @@ class CPU:
             elif reg == 7:  # A
                 self.a = value
             
-            self.cycles += 8
+            self.cycles += 8  # Base 8 T-cycles for rotate/shift operations
         
         else:
             if self.debug:
