@@ -50,6 +50,9 @@ class CPU:
         self.interrupt_master_enable = False
         self.halted = False
         self.ei_delay = 0
+        
+        # Game Boy HALT bug support
+        self.halt_bug_active = False
 
     def init_for_boot_rom(self):
         """Initialize CPU state for boot ROM execution"""
@@ -452,9 +455,23 @@ class CPU:
         # Handle interrupts before fetching next instruction
         if self.handle_interrupts():
             return  # Interrupt was serviced
+        
+        # HALT bug handling: execute instruction twice if flag is set
+        if hasattr(self, 'halt_bug_active') and self.halt_bug_active:
+            # Execute the same instruction twice (Game Boy HALT bug)
+            opcode = self.fetch_byte()
+            self.execute_instruction(opcode)  # First execution
             
-        opcode = self.fetch_byte()
-        self.execute_instruction(opcode)
+            # Reset PC to execute the same instruction again
+            self.pc = (self.pc - 1) & 0xFFFF
+            opcode = self.fetch_byte()
+            self.execute_instruction(opcode)  # Second execution (the bug effect)
+            
+            self.halt_bug_active = False  # Clear the flag after double execution
+        else:
+            # Normal instruction execution
+            opcode = self.fetch_byte()
+            self.execute_instruction(opcode)
     
     def execute_instruction(self, opcode):
         """Execute instruction based on opcode"""
@@ -1108,24 +1125,16 @@ class CPU:
                 self.halted = True
             elif pending:
                 # HALT bug: IME is disabled but interrupts are pending
-                # Skip next instruction (PC doesn't increment after HALT)
                 # This is a known Game Boy hardware bug
-                pass  # HALT bug - will be handled by not incrementing PC properly
+                # The instruction immediately after HALT gets executed twice
+                self.halted = False  # Don't actually halt
+                self.halt_bug_active = True  # Mark that next instruction should be executed twice
             else:
                 # Normal HALT when IME=False and no interrupts pending
                 self.halted = True
             
             self.cycles += 4
             
-            # HALT behavior depends on interrupt state
-            ie_reg = self.memory.read_byte(0xFFFF)  # IE register
-            if_reg = self.memory.read_byte(0xFF0F)  # IF register
-            
-            # If interrupts are disabled and interrupt pending (HALT bug)
-            if not self.interrupt_master_enable and (ie_reg & if_reg) != 0:
-                # HALT bug - skip next instruction
-                self.pc = (self.pc + 1) & 0xFFFF
-        
         # Additional critical opcodes for big2small.gb
         elif opcode == 0x2F:  # CPL - Complement A register
             self.a = (~self.a) & 0xFF

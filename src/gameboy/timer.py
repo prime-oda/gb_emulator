@@ -65,19 +65,14 @@ class Timer:
             
     def update(self, cycles):
         """Update timer state based on CPU cycles - Game Boy accurate timing with proper delays"""
-        # Update DIV counter (always running at 16384 Hz = 4194304/256 cycles)
-        self.div_counter += cycles
+        remaining_cycles = cycles
         
-        # DIV register increments every 256 CPU cycles (16384 Hz)
-        while self.div_counter >= 256:
-            self.div_counter -= 256
-            div = self.memory.io[0x04]
-            div = (div + 1) & 0xFF
-            self.memory.io[0x04] = div
-        
-        # Handle TIMA overflow delay (Game Boy hardware behavior)
+        # Handle TIMA overflow delay FIRST (Game Boy hardware behavior)
         if hasattr(self, 'tima_overflow_delay') and self.tima_overflow_delay > 0:
-            self.tima_overflow_delay -= cycles
+            delay_cycles = min(remaining_cycles, self.tima_overflow_delay)
+            self.tima_overflow_delay -= delay_cycles
+            remaining_cycles -= delay_cycles
+            
             if self.tima_overflow_delay <= 0:
                 # Complete the delayed TIMA reload and interrupt request
                 tma = self.memory.io[0x06]
@@ -88,12 +83,26 @@ class Timer:
                 if_reg |= 0x04  # Set timer interrupt bit
                 self.memory.write_byte(0xFF0F, if_reg)
                 
-                # Clear delay
+                # Clear delay completely
                 self.tima_overflow_delay = 0
                 
                 # Debug logging
                 if hasattr(self.memory, 'debug') and self.memory.debug:
-                    print(f"Timer interrupt triggered (delayed): TIMA reloaded with TMA=0x{tma:02X}")
+                    print(f"タイマー割り込み発生 (遅延処理完了): TIMA reloaded with TMA=0x{tma:02X}")
+        
+        # Continue with remaining cycles if any
+        if remaining_cycles <= 0:
+            return
+        
+        # Update DIV counter (always running at 16384 Hz = 4194304/256 cycles)
+        self.div_counter += remaining_cycles
+        
+        # DIV register increments every 256 CPU cycles (16384 Hz)
+        while self.div_counter >= 256:
+            self.div_counter -= 256
+            div = self.memory.io[0x04]
+            div = (div + 1) & 0xFF
+            self.memory.io[0x04] = div
         
         # Check if TIMA timer is enabled (TAC bit 2)
         tac = self.memory.io[0x07]
@@ -103,7 +112,7 @@ class Timer:
             divider = self.frequencies[freq_select]
             
             # Update TIMA counter
-            self.tima_counter += cycles
+            self.tima_counter += remaining_cycles
             
             # Check if we need to increment TIMA
             while self.tima_counter >= divider:
@@ -119,9 +128,15 @@ class Timer:
                     self.memory.io[0x05] = 0x00  # TIMA becomes 0 immediately
                     
                     # Set up 4 T-cycle delay (Game Boy M-cycle delay)
-                    if not hasattr(self, 'tima_overflow_delay'):
-                        self.tima_overflow_delay = 0
                     self.tima_overflow_delay = 4  # 4 T-cycles delay
+                    
+                    # Debug logging
+                    if hasattr(self.memory, 'debug') and self.memory.debug:
+                        print(f"TIMA overflow開始: 4 T-cycle遅延でタイマー割り込み予定")
+                    
+                    # Important: Break out of the loop to prevent multiple overflows
+                    # The delay will be handled on the next update() call
+                    break
                 else:
                     # Normal increment - no overflow
                     self.memory.io[0x05] = tima + 1
