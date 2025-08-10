@@ -112,55 +112,15 @@ class PPU:
         print(f"🎮 Pygame window created: {self.screen_width * self.scale}x{self.screen_height * self.scale}")
         print("📺 Look for the Game Boy Emulator window - it should be visible now!")
 
-        # Simplified window activation for macOS
-        try:
-            import subprocess
-            # Just try to activate without timeout issues
-            subprocess.Popen(['osascript', '-e', 
-                            'tell application "System Events" to keystroke tab using {command down}'])
-            print("🔄 Window activation command sent")
-        except Exception as e:
-            print(f"⚠️ Window activation failed (this is usually OK): {e}")
+        # Window activation disabled to avoid macOS permissions
+        print("🎮 Game Boy window created and ready")
 
         self.clock = pygame.time.Clock()
 
         # Frame rate control
         self.target_fps = 60  # Game Boy native refresh rate  # Game Boy native refresh rate
 
-    def step(self, cpu_cycles):
-        """Update PPU state based on CPU cycles"""
-        self.cycles += cpu_cycles
-
-#        if self.debug:
-#            self.logger.info(f"Step: scan_line={self.scan_line}, mode={self.mode}, cycles={self.cycles}")
-
-        if self.scan_line < 144:  # Visible scanlines
-            if self.mode == 2 and self.cycles >= self.mode_2_cycles:
-                # OAM scan -> VRAM scan
-                self.mode = 3
-                self.cycles = 0
-            elif self.mode == 3 and self.cycles >= self.mode_3_cycles:
-                # VRAM scan -> H-Blank
-                self.mode = 0
-                self.cycles = 0
-                self.render_scanline()
-            elif self.mode == 0 and self.cycles >= self.mode_0_cycles:
-                # H-Blank -> next scanline
-                self.scan_line += 1
-                self.cycles = 0
-                if self.scan_line < 144:
-                    self.mode = 2  # Next OAM scan
-                else:
-                    self.mode = 1  # V-Blank
-                    # Trigger V-Blank interrupt
-                    self.request_vblank_interrupt()
-        else:  # V-Blank period (scanlines 144-153)
-            if self.mode == 1 and self.cycles >= self.scanline_cycles:  # Duration of one scanline in V-Blank
-                self.scan_line += 1
-                self.cycles = 0
-                if self.scan_line >= 154:
-                    self.scan_line = 0
-                    self.mode = 2  # Start new frame  # Start new frame
+    # Old step method removed - now using unified step method below
 
     def render_scanline(self):
         """Render a single scanline to the temporary buffer"""
@@ -938,43 +898,45 @@ class PPU:
             self.frame_buffer[self.scan_line][screen_x] = palette_color
     
     
-    def step(self, cycles):
-        """Step PPU by specified cycles for accurate LCD timing"""
-        if not hasattr(self, 'ppu_cycles'):
-            self.ppu_cycles = 0
-        
-        self.ppu_cycles += cycles
-        
-        # Process scanlines with precise 456-cycle timing
-        while self.ppu_cycles >= 456:
-            self.ppu_cycles -= 456
-            ly = self.memory.read_byte(0xFF44)
-            
-            # Handle LCD modes for current scanline
-            if ly < 144:
-                # Visible scanline (0-143)
-                # Mode 2 (OAM scan): 80 cycles
-                # Mode 3 (VRAM access): 172 cycles  
-                # Mode 0 (H-Blank): 204 cycles
-                # Total: 456 cycles per scanline
-                pass  # Scanline rendering handled elsewhere
-            elif ly >= 144 and ly < 154:
-                # V-Blank period (144-153)
-                if ly == 144:
-                    # Entering V-Blank - trigger V-Blank interrupt
-                    if_reg = self.memory.read_byte(0xFF0F)
-                    self.memory.write_byte(0xFF0F, if_reg | 0x01)
-            
-            # Advance to next scanline
-            ly = (ly + 1) % 154  # 154 scanlines total (144 visible + 10 V-Blank)
-            self.memory.write_byte(0xFF44, ly)
-            
-            # Clear V-Blank interrupt when leaving V-Blank period
-            if ly == 0:
-                if_reg = self.memory.read_byte(0xFF0F)
-                self.memory.write_byte(0xFF0F, if_reg & ~0x01)
+    def step(self, cpu_cycles):
+        """Update PPU state based on CPU cycles with proper mode timing"""
+        self.cycles += cpu_cycles
 
-def render_vram_debug(self):
+        if self.scan_line < 144:  # 可視スキャンライン (0-143)
+            if self.mode == 2 and self.cycles >= self.mode_2_cycles:
+                # OAM スキャン → VRAM アクセス
+                self.mode = 3
+                self.cycles = 0
+            elif self.mode == 3 and self.cycles >= self.mode_3_cycles:
+                # VRAM アクセス → H-Blank
+                self.mode = 0
+                self.cycles = 0
+                # スキャンライン描画実行
+                self.render_scanline()
+            elif self.mode == 0 and self.cycles >= self.mode_0_cycles:
+                # H-Blank → 次のスキャンライン
+                self.scan_line += 1
+                self.memory.write_byte(0xFF44, self.scan_line)  # LY レジスタ更新
+                self.cycles = 0
+                if self.scan_line < 144:
+                    self.mode = 2  # 次の OAM スキャン
+                else:
+                    self.mode = 1  # V-Blank 開始
+                    # V-Blank 割り込み要求
+                    self.request_vblank_interrupt()
+        else:  # V-Blank 期間 (144-153)
+            if self.mode == 1 and self.cycles >= self.scanline_cycles:
+                self.scan_line += 1
+                self.memory.write_byte(0xFF44, self.scan_line)  # LY レジスタ更新
+                self.cycles = 0
+                if self.scan_line >= 154:
+                    self.scan_line = 0
+                    self.memory.write_byte(0xFF44, self.scan_line)
+                    self.mode = 2  # 新しいフレーム開始
+                    # フレーム完了時にPygameディスプレイを更新
+                    self.render_frame()
+
+    def render_vram_debug(self):
         """Debug method to render VRAM content directly when LCD is disabled"""
         if self.scan_line >= self.screen_height:
             return
