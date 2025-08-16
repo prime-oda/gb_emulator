@@ -21,7 +21,7 @@ CYCLES_PER_SCANLINE = 456  # 456 cycles per scanline
 class GameBoy:
     def __init__(self, debug=False):
         self.debug = debug
-        self.memory = Memory()
+        self.memory = Memory(debug)
         self.cpu = CPU(self.memory, debug)
         
         # Import and initialize serial port first
@@ -48,9 +48,10 @@ class GameBoy:
                 rom_data = f.read()
             self.memory.load_rom(rom_data)
             
-            # mem_timing.gb検出と64サイクル精度モード自動有効化
+            # mem_timing.gb検出で64サイクル精度モード自動有効化
             if 'mem_timing' in rom_path.lower():
-                print(f"🎯 mem_timing.gb検出: 64サイクル精度タイマーモード有効化")
+                if self.debug:
+                    print(f"🎯 mem_timing.gb検出: 64サイクル精度タイマーモード有効化")
                 self.timer.enable_mem_timing_mode()
                 if hasattr(self.memory, 'debug'):
                     self.memory.debug = True  # デバッグログ有効化
@@ -68,15 +69,18 @@ class GameBoy:
                         # Load boot ROM first, then game ROM
                         self.memory.load_boot_rom(boot_rom_data)
                         self.cpu.init_for_boot_rom()  # Start from boot ROM
-                        print(f"🔄 Boot ROM loaded, will transition to game ROM")
+                        if self.debug:
+                            print(f"🔄 Boot ROM loaded, will transition to game ROM")
                     else:
                         # No valid boot ROM - use post-boot initialization
                         self.cpu.init_for_game_rom()
-                        print(f"⚠️  No boot ROM - using post-boot initialization")
+                        if self.debug:
+                            print(f"⚠️  No boot ROM - using post-boot initialization")
                 except FileNotFoundError:
                     # No boot ROM available - use post-boot initialization
                     self.cpu.init_for_game_rom()
-                    print(f"⚠️  Boot ROM not found - using post-boot initialization")
+                    if self.debug:
+                        print(f"⚠️  Boot ROM not found - using post-boot initialization")
                 
             if self.debug:
                 print(f"Loaded ROM: {rom_path} ({len(rom_data)} bytes)")
@@ -96,21 +100,26 @@ class GameBoy:
         cycle_count = 0
         frame_count = 0
         
-        print("Initializing PPU rendering...")
+        if self.debug:
+            print("Initializing PPU rendering...")
         # Initialize PPU rendering
         try:
             render_result = self.ppu.render_frame()
-            print(f"Initial render result: {render_result}")
+            if self.debug:
+                print(f"Initial render result: {render_result}")
             if not render_result:
-                print("Initial render failed, exiting")
+                if self.debug:
+                    print("Initial render failed, exiting")
                 return
         except Exception as e:
-            print(f"Error during initial render: {e}")
-            import traceback
-            traceback.print_exc()
+            if self.debug:
+                print(f"Error during initial render: {e}")
+                import traceback
+                traceback.print_exc()
             return
         
-        print("Starting main emulation loop...")
+        if self.debug:
+            print("Starting main emulation loop...")
         try:
             # Frame timing control
             clock = pygame.time.Clock()
@@ -136,7 +145,7 @@ class GameBoy:
                     print(f"Cycles: {cycle_count}, PC: 0x{self.cpu.pc:04X}, LY: {ly}, LCDC: 0x{lcdc:02X}, STAT: 0x{stat:02X}")
                 
                 # CPU cycle progress tracking - balanced for speed and visibility
-                if cycle_count % 5000000 == 0:  # Every 5M cycles for good visibility
+                if self.debug and cycle_count % 5000000 == 0:  # Every 5M cycles for good visibility
                     ly = self.memory.read_byte(0xFF44)
                     lcdc = self.memory.read_byte(0xFF40)
                     print(f"CPU Progress: {cycle_count} cycles, PC: 0x{self.cpu.pc:04X}, LY: {ly}, LCDC: 0x{lcdc:02X}")
@@ -152,12 +161,14 @@ class GameBoy:
                     # Render frame and check if window should close
                     try:
                         if not self.ppu.render_frame():
-                            print("Render returned False, stopping...")
+                            if self.debug:
+                                print("Render returned False, stopping...")
                             break
                     except Exception as e:
-                        print(f"Error during render: {e}")
-                        import traceback
-                        traceback.print_exc()
+                        if self.debug:
+                            print(f"Error during render: {e}")
+                            import traceback
+                            traceback.print_exc()
                         break
                         
                         
@@ -168,13 +179,16 @@ class GameBoy:
                     clock.tick(target_fps)
                 
         except KeyboardInterrupt:
-            print(f"\nEmulation stopped. Total cycles: {cycle_count}, Frames: {frame_count}")
+            if self.debug:
+                print(f"\nEmulation stopped. Total cycles: {cycle_count}, Frames: {frame_count}")
         except Exception as e:
-            print(f"Error in main loop: {e}")
-            import traceback
-            traceback.print_exc()
+            if self.debug:
+                print(f"Error in main loop: {e}")
+                import traceback
+                traceback.print_exc()
         
-        print("Emulation loop ended, cleaning up...")
+        if self.debug:
+            print("Emulation loop ended, cleaning up...")
         pygame.quit()
     
     def step(self):

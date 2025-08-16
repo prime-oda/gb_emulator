@@ -4,7 +4,9 @@ Handles memory mapping and bank switching for the Game Boy system.
 """
 
 class Memory:
-    def __init__(self):
+    def __init__(self, debug=False):
+        self.debug = debug
+        
         # Game Boy memory map
         self.rom = [0] * 0x8000      # ROM banks 0-1 (32KB)
         self.apu = None              # Will be set by emulator
@@ -53,7 +55,7 @@ class Memory:
         self.io[0x04] = 0x00  # DIV - Divider register
         self.io[0x05] = 0x00  # TIMA - Timer counter
         self.io[0x06] = 0x00  # TMA - Timer modulo
-        self.io[0x07] = 0x00  # TAC - Timer control  # TAC - Timer control
+        self.io[0x07] = 0x00  # TAC - Timer control  # TAC - Timer control  # TAC - Timer control
         
     def read_byte(self, address):
         """Read a byte from the specified memory address"""
@@ -184,9 +186,9 @@ class Memory:
                     self._text_writes = 0
                 self._text_writes += 1
                 
-                if self._text_writes <= 3:  # Log first 3 text writes only
+                if self.debug and self._text_writes <= 3:  # Log first 3 text writes only
                     print(f"📝 TEXT WRITE #{self._text_writes}: row={row}, col={col}, char=0x{value:02X} ('{chr(value) if 32 <= value <= 126 else '?'}')")
-                elif self._text_writes == 4:
+                elif self.debug and self._text_writes == 4:
                     print("📝 (Suppressing text write logs for speed...)")
             self.vram[address - 0x8000] = value
         elif address < 0xC000:
@@ -224,7 +226,8 @@ class Memory:
                 # Text is typically at tile rows 8-9 (pixel rows 64-79)
                 # Keep SCY <= 64 to ensure text remains visible
                 if value > 64:
-                    print(f"🔧 SCY OVERRIDE: ROM tried to set SCY={value}, limiting to 64 to keep text visible")
+                    if self.debug:
+                        print(f"🔧 SCY OVERRIDE: ROM tried to set SCY={value}, limiting to 64 to keep text visible")
                     value = 64
                 self.io[address - 0xFF00] = value
             elif address == 0xFF50:  # Boot ROM disable register
@@ -306,7 +309,8 @@ class Memory:
             self.io[0x40] = 0x00  # LCDC: LCD initially off
             self.io[0x50] = 0x00  # Boot ROM disable register
             
-            print(f"✅ Boot ROM overlay enabled ({len(boot_rom_data)} bytes)")
+            if self.debug:
+                print(f"✅ Boot ROM overlay enabled ({len(boot_rom_data)} bytes)")
         else:
             raise ValueError(f"Invalid boot ROM size: {len(boot_rom_data)} (expected 256)")
     
