@@ -65,7 +65,7 @@ class Timer:
             # Timer control register - only bits 0-2 are used
             self.memory.io[0x07] = value & 0x07
             # Reset TIMA counter when TAC changes (some games depend on this)
-            self.tima_counter = 0  # Only bits 0-2 are used
+            self.tima_counter = 0
             
     def update(self, cycles):
         """Update timer state based on CPU cycles - Game Boy accurate timing with proper delays"""
@@ -75,14 +75,14 @@ class Timer:
         if self.mem_timing_enabled:
             self.mem_timing_counter += cycles
         
-        # Handle TIMA overflow delay FIRST (Game Boy hardware behavior)
+        # 🔥 最優先処理: TIMA overflow遅延処理（Game Boyハードウェア動作）
         if hasattr(self, 'tima_overflow_delay') and self.tima_overflow_delay > 0:
             delay_cycles = min(remaining_cycles, self.tima_overflow_delay)
             self.tima_overflow_delay -= delay_cycles
             remaining_cycles -= delay_cycles
             
+            # 遅延処理完了時のみTMA reloadと割り込み設定
             if self.tima_overflow_delay <= 0:
-                # Complete the delayed TIMA reload and interrupt request
                 tma = self.memory.io[0x06]
                 self.memory.io[0x05] = tma  # Reload TIMA with TMA
                 
@@ -91,14 +91,14 @@ class Timer:
                 if_reg |= 0x04  # Set timer interrupt bit
                 self.memory.write_byte(0xFF0F, if_reg)
                 
-                # Clear delay completely
-                self.tima_overflow_delay = 0
-                
-                # Debug logging for mem_timing
+                # Debug logging
                 if self.mem_timing_enabled:
                     print(f"🔔 TIMA overflow完了: TMA=0x{tma:02X}, サイクル={self.mem_timing_counter}")
+                
+                # Clear delay completely
+                self.tima_overflow_delay = 0
         
-        # Continue with remaining cycles if any
+        # 残りサイクルがない場合は処理終了
         if remaining_cycles <= 0:
             return
         
@@ -112,68 +112,73 @@ class Timer:
             div = (div + 1) & 0xFF
             self.memory.io[0x04] = div
         
-        # Check if TIMA timer is enabled (TAC bit 2)
+        # 🎯 TAC状態チェック: Timer有効時のみTIMA処理実行
         tac = self.memory.io[0x07]
-        if tac & 0x04:  # Timer enabled
-            # Get timer frequency from TAC bits 1-0
-            freq_select = tac & 0x03
-            divider = self.frequencies[freq_select]
+        if not (tac & 0x04):  # Timer無効の場合
+            # TIMAカウンター停止（Game Boy準拠）
+            # 注意: DIVは継続動作、TIMAのみ停止
+            return
+        
+        # Timer有効時のTIMA処理
+        # Get timer frequency from TAC bits 1-0
+        freq_select = tac & 0x03
+        divider = self.frequencies[freq_select]
+        
+        # mem_timing.gb special handling for 64-cycle precision
+        if self.mem_timing_enabled and divider == 64:
+            # 64サイクル精度処理
+            old_tima_counter = self.tima_counter
+            self.tima_counter += remaining_cycles
             
-            # mem_timing.gb special handling for 64-cycle precision
-            if self.mem_timing_enabled and divider == 64:
-                # 64サイクル精度処理
-                old_tima_counter = self.tima_counter
-                self.tima_counter += remaining_cycles
+            # 64サイクル境界をチェック
+            old_increments = old_tima_counter // 64
+            new_increments = self.tima_counter // 64
+            tima_increments = new_increments - old_increments
+            
+            for i in range(tima_increments):
+                tima = self.memory.io[0x05]
+                if tima == 0xFF:
+                    # TIMA overflow - 64サイクル精度で処理
+                    self.memory.io[0x05] = 0x00
+                    self.tima_overflow_delay = 4
+                    if hasattr(self.memory, 'debug') and self.memory.debug:
+                        print(f"🔔 TIMA overflow (64-cycle): cycle={self.mem_timing_counter}")
+                    break
+                else:
+                    self.memory.io[0x05] = tima + 1
+                    if self.mem_timing_enabled:
+                        print(f"⏰ TIMA++ = 0x{tima+1:02X} (64-cycle boundary)")
+        else:
+            # 通常のタイマー処理
+            # Update TIMA counter
+            self.tima_counter += remaining_cycles
+            
+            # Check if we need to increment TIMA
+            while self.tima_counter >= divider:
+                self.tima_counter -= divider
                 
-                # 64サイクル境界をチェック
-                old_increments = old_tima_counter // 64
-                new_increments = self.tima_counter // 64
-                tima_increments = new_increments - old_increments
+                # Read current TIMA value
+                tima = self.memory.io[0x05]
                 
-                for i in range(tima_increments):
-                    tima = self.memory.io[0x05]
-                    if tima == 0xFF:
-                        # TIMA overflow - 64サイクル精度で処理
-                        self.memory.io[0x05] = 0x00
-                        self.tima_overflow_delay = 4
-                        if hasattr(self.memory, 'debug') and self.memory.debug:
-                            print(f"🔔 TIMA overflow (64-cycle): cycle={self.mem_timing_counter}")
-                        break
-                    else:
-                        self.memory.io[0x05] = tima + 1
-                        if self.mem_timing_enabled:
-                            print(f"⏰ TIMA++ = 0x{tima+1:02X} (64-cycle boundary)")
-            else:
-                # 通常のタイマー処理
-                # Update TIMA counter
-                self.tima_counter += remaining_cycles
-                
-                # Check if we need to increment TIMA
-                while self.tima_counter >= divider:
-                    self.tima_counter -= divider
+                # Check for overflow BEFORE incrementing
+                if tima == 0xFF:
+                    # TIMA will overflow - start Game Boy accurate delayed process
+                    # Set TIMA to 0 immediately, but delay TMA reload and interrupt by 4 T-cycles
+                    self.memory.io[0x05] = 0x00  # TIMA becomes 0 immediately
                     
-                    # Read current TIMA value
-                    tima = self.memory.io[0x05]
+                    # Set up 4 T-cycle delay (Game Boy M-cycle delay)
+                    self.tima_overflow_delay = 4  # 4 T-cycles delay
                     
-                    # Check for overflow BEFORE incrementing
-                    if tima == 0xFF:
-                        # TIMA will overflow - start Game Boy accurate delayed process
-                        # Set TIMA to 0 immediately, but delay TMA reload and interrupt by 4 T-cycles
-                        self.memory.io[0x05] = 0x00  # TIMA becomes 0 immediately
-                        
-                        # Set up 4 T-cycle delay (Game Boy M-cycle delay)
-                        self.tima_overflow_delay = 4  # 4 T-cycles delay
-                        
-                        # Debug logging
-                        if hasattr(self.memory, 'debug') and self.memory.debug:
-                            print(f"TIMA overflow開始: 4 T-cycle遅延でタイマー割り込み予定")
-                        
-                        # Important: Break out of the loop to prevent multiple overflows
-                        # The delay will be handled on the next update() call
-                        break
-                    else:
-                        # Normal increment - no overflow
-                        self.memory.io[0x05] = tima + 1
+                    # Debug logging
+                    if hasattr(self.memory, 'debug') and self.memory.debug:
+                        print(f"TIMA overflow開始: 4 T-cycle遅延でタイマー割り込み予定")
+                    
+                    # Important: Break out of the loop to prevent multiple overflows
+                    # The delay will be handled on the next update() call
+                    break
+                else:
+                    # Normal increment - no overflow
+                    self.memory.io[0x05] = tima + 1
                     
     def get_div_register(self):
         """Get current DIV register value"""

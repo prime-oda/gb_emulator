@@ -28,6 +28,45 @@ trace_*.py
 wait_for_*.py
 full_vram_*.py
 
+# 分析・修正・テストスクリプト（一時ファイル）
+analyze_*.py
+fix_*.py
+check_*.py
+diagnose_*.py
+implement_*.py
+comprehensive_*.py
+precise_*.py
+identify_*.py
+monitor_*.py
+verify_*.py
+search_*.py
+understand_*.py
+measure_*.py
+investigate_*.py
+watch_*.py
+timing_*.py
+deep_*.py
+extended_*.py
+fast_*.py
+accelerate_*.py
+calculate_*.py
+find_*.py
+apply_*.py
+interrupt_*.py
+get_*.py
+quick_*.py
+run_*.py
+add_*.py
+generate_*.py
+launch_*.py
+
+# テスト結果・ログファイル
+*.txt
+cpu_instrs_output.txt
+blargg_cpu_test_results.txt
+project_completion.log
+ppu_debug.log
+
 # ROM files
 roms/
 
