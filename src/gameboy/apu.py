@@ -15,15 +15,20 @@ class APU:
         self.memory = memory
         self.debug = debug
         
-        # Audio specifications (reduced for performance)
-        self.sample_rate = 22050  # Lower sample rate for better performance
-        self.buffer_size = 512    # Smaller buffer size
-        self.channels = 2         # Stereo output
+        # 🎵 高品質音声設定 - 44.1kHz対応
+        self.sample_rate = 44100     # Game Boy準拠の高品質サンプルレート
+        self.buffer_size = 1024      # より大きなバッファで安定性向上
+        self.channels = 2            # ステレオ出力
         
-        # Game Boy audio timing
-        self.gb_sample_rate = 4194304 // 95  # ~44kHz (close to our target)
-        self.cycles_per_sample = 4194304 // self.sample_rate
+        # Game Boy audio timing - 正確な計算
+        self.gb_sample_rate = 4194304 // 95  # ~44kHz (Game Boy実機相当)
+        self.cycles_per_sample = 4194304 // self.sample_rate  # 95.09サイクル/サンプル
         self.cycle_counter = 0
+        
+        # 🎵 Frame Sequencer実装 (512Hz)
+        self.frame_sequencer_counter = 0
+        self.frame_sequencer_step = 0  # 0-7の8ステップサイクル
+        self.cycles_per_frame = 4194304 // 512  # 8192サイクル
         
         # Audio channels
         self.channel1 = SquareChannel(1, debug=debug)  # Square wave with sweep
@@ -103,16 +108,48 @@ class APU:
             time.sleep(0.01)  # Small delay to prevent busy waiting
     
     def step(self, cpu_cycles):
-        """Update APU state based on CPU cycles"""
+        """Update APU state based on CPU cycles - Frame Sequencer対応"""
         if not self.enabled:
             return
             
         self.cycle_counter += cpu_cycles
         
+        # 🎵 Frame Sequencer更新 (512Hz)
+        self.frame_sequencer_counter += cpu_cycles
+        while self.frame_sequencer_counter >= self.cycles_per_frame:
+            self.frame_sequencer_counter -= self.cycles_per_frame
+            self._update_frame_sequencer()
+        
         # Generate samples when enough cycles have passed
         while self.cycle_counter >= self.cycles_per_sample:
             self.cycle_counter -= self.cycles_per_sample
             self._generate_sample()
+
+    
+    def _update_frame_sequencer(self):
+        """Frame Sequencer更新 - Game Boy準拠の512Hz制御"""
+        step = self.frame_sequencer_step
+        
+        # Length Counter: 256Hz (step 0, 2, 4, 6)
+        if step % 2 == 0:
+            self.channel1.update_length_counter()
+            self.channel2.update_length_counter()
+            self.channel3.update_length_counter()
+            self.channel4.update_length_counter()
+        
+        # Envelope: 64Hz (step 7)
+        if step == 7:
+            self.channel1.update_envelope()
+            self.channel2.update_envelope()
+            # Channel3にはエンベロープなし
+            self.channel4.update_envelope()
+        
+        # Sweep: 128Hz (step 2, 6) - Channel1のみ
+        if step == 2 or step == 6:
+            self.channel1.update_sweep()
+        
+        # 次のステップへ
+        self.frame_sequencer_step = (self.frame_sequencer_step + 1) % 8
     
     def _generate_sample(self):
         """Generate one audio sample"""
@@ -288,49 +325,53 @@ class SquareChannel:
         self.sweep_counter = 0
     
     def step(self):
-        """Update channel state"""
+        """Update channel state - 高精度周波数計算"""
         if not self.enabled:
             return
             
-        # Update phase
+        # 🎵 正確な周波数計算 - Game Boy準拠
         if self.frequency > 0:
-            freq_hz = 131072 / (2048 - self.frequency)
-            phase_increment = (freq_hz * 8) / 44100  # 8 steps per duty cycle
-            self.phase += phase_increment
-            if self.phase >= 8:
-                self.phase -= 8
-        
-        # Update envelope (at 64 Hz)
-        self.envelope_counter += 1
-        if self.envelope_counter >= 688:  # 44100 / 64
-            self.envelope_counter = 0
-            if self.envelope_period > 0:
-                if self.envelope_direction:
-                    if self.current_volume < 15:
-                        self.current_volume += 1
-                else:
-                    if self.current_volume > 0:
-                        self.current_volume -= 1
-        
-        # Update sweep (Channel 1 only, at 128 Hz)
-        if self.sweep_enabled and self.sweep_period > 0:
-            self.sweep_counter += 1
-            if self.sweep_counter >= 344:  # 44100 / 128
-                self.sweep_counter = 0
-                old_freq = self.frequency
-                if self.sweep_direction:
-                    self.frequency -= self.frequency >> self.sweep_shift
-                else:
-                    self.frequency += self.frequency >> self.sweep_shift
-                
-                # Disable if frequency overflow
-                if self.frequency > 2047:
-                    self.enabled = False
-        
-        # Update length counter (at 256 Hz)
+            # Game Boy式: Period = (2048-frequency)*4
+            period = (2048 - self.frequency) * 4
+            if period > 0:
+                freq_hz = 4194304 / period  # Game Boy クロック周波数
+                phase_increment = (freq_hz * 8) / 44100  # 8ステップ/デューティサイクル
+                self.phase += phase_increment
+                if self.phase >= 8:
+                    self.phase -= 8
+
+    
+    def update_length_counter(self):
+        """Length Counter更新 - Frame Sequencerから呼び出し"""
         if self.length_enabled and self.length_counter > 0:
-            # TODO: Implement proper length counter timing
-            pass
+            self.length_counter -= 1
+            if self.length_counter == 0:
+                self.enabled = False
+    
+    def update_envelope(self):
+        """Envelope更新 - Frame Sequencerから呼び出し"""
+        if self.envelope_period > 0:
+            if self.envelope_direction:
+                if self.current_volume < 15:
+                    self.current_volume += 1
+            else:
+                if self.current_volume > 0:
+                    self.current_volume -= 1
+    
+    def update_sweep(self):
+        """Sweep更新 - Channel1のみ、Frame Sequencerから呼び出し"""
+        if not self.sweep_enabled or self.sweep_period == 0:
+            return
+            
+        old_freq = self.frequency
+        if self.sweep_direction:
+            self.frequency -= self.frequency >> self.sweep_shift
+        else:
+            self.frequency += self.frequency >> self.sweep_shift
+        
+        # 周波数オーバーフローチェック
+        if self.frequency > 2047:
+            self.enabled = False
     
     def get_sample(self):
         """Get current audio sample"""
@@ -410,17 +451,28 @@ class WaveChannel:
         self.length_counter = 0
         
     def step(self):
-        """Update channel state"""
+        """Update channel state - 高精度周波数計算"""
         if not self.enabled or not self.dac_enabled:
             return
             
-        # Update phase
+        # 🎵 正確な周波数計算 - Game Boy準拠
         if self.frequency > 0:
-            freq_hz = 65536 / (2048 - self.frequency)
-            phase_increment = (freq_hz * 32) / 44100  # 32 samples in wave RAM
-            self.phase += phase_increment
-            if self.phase >= 32:
-                self.phase -= 32
+            # Game Boy式: Period = (2048-frequency)*2 (Wave channelは*2)
+            period = (2048 - self.frequency) * 2
+            if period > 0:
+                freq_hz = 4194304 / period
+                phase_increment = (freq_hz * 32) / 44100  # 32サンプル/Wave RAM
+                self.phase += phase_increment
+                if self.phase >= 32:
+                    self.phase -= 32
+
+    
+    def update_length_counter(self):
+        """Length Counter更新 - Frame Sequencerから呼び出し"""
+        if self.length_enabled and self.length_counter > 0:
+            self.length_counter -= 1
+            if self.length_counter == 0:
+                self.enabled = False
     
     def get_sample(self):
         """Get current audio sample"""
@@ -529,28 +581,34 @@ class NoiseChannel:
         self.noise_counter = 0
     
     def step(self):
-        """Update channel state"""
+        """Update channel state - 高精度ノイズ生成"""
         if not self.enabled:
             return
             
-        # Update envelope (at 64 Hz)
-        self.envelope_counter += 1
-        if self.envelope_counter >= 688:  # 44100 / 64
-            self.envelope_counter = 0
-            if self.envelope_period > 0:
-                if self.envelope_direction:
-                    if self.current_volume < 15:
-                        self.current_volume += 1
-                else:
-                    if self.current_volume > 0:
-                        self.current_volume -= 1
-        
-        # Update LFSR
+        # 🎵 正確なノイズ周波数計算
         self.noise_counter += 1
         noise_freq = self._get_noise_frequency()
         if noise_freq > 0 and self.noise_counter >= (44100 // noise_freq):
             self.noise_counter = 0
             self._update_lfsr()
+
+    
+    def update_length_counter(self):
+        """Length Counter更新 - Frame Sequencerから呼び出し"""
+        if self.length_enabled and self.length_counter > 0:
+            self.length_counter -= 1
+            if self.length_counter == 0:
+                self.enabled = False
+    
+    def update_envelope(self):
+        """Envelope更新 - Frame Sequencerから呼び出し"""
+        if self.envelope_period > 0:
+            if self.envelope_direction:
+                if self.current_volume < 15:
+                    self.current_volume += 1
+            else:
+                if self.current_volume > 0:
+                    self.current_volume -= 1
     
     def _get_noise_frequency(self):
         """Calculate noise frequency"""
