@@ -1,34 +1,44 @@
 """
 Game Boy Timer Implementation - PyBoy Compatible Style
 Handles DIV, TIMA, TMA, and TAC registers with proper timing.
+
+Cython最適化: Phase 1
 """
 import os
+try:
+    import cython
+except ImportError:
+    # Cythonがない環境でも動作するようにダミークラス
+    class cython:
+        @staticmethod
+        def declare(*args, **kwargs):
+            pass
 
 # PyBoy互換のMAX_CYCLES定義
-MAX_CYCLES = 0x7FFFFFFFFFFFFFFF  # 最大サイクル数
+MAX_CYCLES: cython.longlong = 0x7FFFFFFFFFFFFFFF  # 最大サイクル数
 
 class Timer:
-    def __init__(self, memory, debug=False):
+    def __init__(self, memory, debug: cython.bint = False):
         # PyBoy準拠: 全て0で初期化
-        self.DIV = 0
-        self.TIMA = 0
-        self.TMA = 0
-        self.TAC = 0
+        self.DIV: cython.int = 0
+        self.TIMA: cython.int = 0
+        self.TMA: cython.int = 0
+        self.TAC: cython.int = 0
 
         # PyBoy互換のカウンタ
-        self.DIV_counter = 0
-        self.TIMA_counter = 0
-        self.dividers = [10, 4, 6, 8]
-        self._cycles_to_interrupt = MAX_CYCLES  # 初期状態: タイマー無効なのでMAX_CYCLES
+        self.DIV_counter: cython.int = 0
+        self.TIMA_counter: cython.int = 0
+        self.dividers: list = [10, 4, 6, 8]
+        self._cycles_to_interrupt: cython.longlong = MAX_CYCLES  # 初期状態: タイマー無効なのでMAX_CYCLES
 
         # 統一カウンタシステム（将来の拡張用）
-        self.system_counter = 0
+        self.system_counter: cython.longlong = 0
 
         # デバッグ機能
-        self.debug_enabled = debug
+        self.debug_enabled: cython.bint = debug
         self.tac_write_cycle = None
-        self.last_debug_cycle = 0
-        self.last_cycles = 0
+        self.last_debug_cycle: cython.longlong = 0
+        self.last_cycles: cython.longlong = 0
 
         # メモリ参照保存
         self.memory = memory
@@ -108,7 +118,7 @@ class Timer:
 
         return False
 
-    def read_register(self, address):
+    def read_register(self, address: cython.int) -> cython.int:
         """PyBoy互換のレジスタ読み出し"""
         if address == 0xFF04:  # DIV
             return self.DIV
@@ -120,7 +130,7 @@ class Timer:
             return self.TAC
         return 0xFF
         
-    def write_register(self, address, value):
+    def write_register(self, address: cython.int, value: cython.int) -> None:
         """PyBoy方式のシンプルなレジスタ書き込み"""
         value &= 0xFF
 
@@ -163,9 +173,9 @@ class Timer:
                     print(f"[Timer] TAC=0x{value:02X} written, old_tac=0x{old_tac:02X}")
                     print(f"[Timer] TIMA=0x{self.TIMA:02X}, TMA=0x{self.TMA:02X}, TIMA_counter={self.TIMA_counter}")
 
-    def tick(self, _cycles):
+    def tick(self, _cycles: cython.longlong) -> cython.bint:
         """PyBoy方式のtick処理（高速・安定版）"""
-        cycles = _cycles - self.last_cycles
+        cycles: cython.longlong = _cycles - self.last_cycles
         if cycles == 0:
             return False
         self.last_cycles = _cycles
@@ -184,9 +194,9 @@ class Timer:
 
         # TIMA更新（PyBoy方式）
         self.TIMA_counter += cycles
-        divider = self.dividers[self.TAC & 0b11]
+        divider: cython.int = self.dividers[self.TAC & 0b11]
 
-        ret = False
+        ret: cython.bint = False
         while self.TIMA_counter >= (1 << divider):
             self.TIMA_counter -= 1 << divider  # Keeps possible remainder
             self.TIMA += 1
