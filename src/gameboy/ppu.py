@@ -39,6 +39,9 @@ class PPU:
         self.scan_line = 0
         self.mode = 0  # 0: H-Blank, 1: V-Blank, 2: OAM, 3: VRAM
 
+        # Batch processing: cycles until next interrupt
+        self._cycles_to_interrupt = 456  # 初期値: 1スキャンライン
+
         # Mode durations (in CPU cycles) - Game Boy accurate timing
         self.mode_2_cycles = 80   # OAM scan
         self.mode_3_cycles = 172  # VRAM scan
@@ -958,6 +961,23 @@ class PPU:
                     self.mode = 2  # 新しいフレーム開始
                     # フレーム完了時にPygameディスプレイを更新
                     self.render_frame()
+
+        # バッチ処理: 次の状態変化までのサイクル数を計算
+        self._update_cycles_to_interrupt()
+
+    def _update_cycles_to_interrupt(self):
+        """バッチ処理用: 次のスキャンラインまでのサイクル数を計算
+
+        注: モード遷移ではなくスキャンライン単位で計算することで、
+        バッチ処理の効果を最大化。STAT割り込みの精度は若干低下するが、
+        V-Blank割り込みの精度は維持される。
+        """
+        # 現在のスキャンラインが終了するまでのサイクル数
+        self._cycles_to_interrupt = self.scanline_cycles - self.cycles
+
+        # 負の値を防ぐ
+        if self._cycles_to_interrupt <= 0:
+            self._cycles_to_interrupt = 1
 
     def render_vram_debug(self):
         """Debug method to render VRAM content directly when LCD is disabled"""

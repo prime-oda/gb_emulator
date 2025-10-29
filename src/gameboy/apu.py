@@ -47,7 +47,10 @@ class APU:
         
         # Audio buffer
         self.audio_buffer = deque(maxlen=self.buffer_size * 4)
-        
+
+        # Batch processing: APUは割り込みを発生させないため大きな値
+        self._cycles_to_interrupt = 0x7FFFFFFFFFFFFFFF  # 最大値
+
         # Initialize pygame mixer
         self.init_audio()
         
