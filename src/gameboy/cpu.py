@@ -1,12 +1,26 @@
-import logging
-
-# Configure logging
-logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
-
 """
 Game Boy CPU (Sharp LR35902) emulation
 Based on the Z80 architecture with some modifications.
+
+Cython最適化: Phase 1
 """
+import logging
+import os
+
+try:
+    import cython
+except ImportError:
+    # Cythonがない環境でも動作するようにダミークラス
+    class cython:
+        @staticmethod
+        def declare(*args, **kwargs):
+            pass
+        int = int
+        longlong = int
+        bint = bool
+
+# Configure logging
+logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
 
 class MemoryAccessScheduler:
     """サイクル精度メモリアクセススケジューラ
@@ -85,41 +99,38 @@ class MemoryAccessScheduler:
         return executed
 
 class CPU:
-    def __init__(self, memory, debug=False):
+    def __init__(self, memory, debug: cython.bint = False):
         self.memory = memory
-        self.debug = debug
-        
-        # サイクル精度メモリアクセススケジューラ
-        self.memory_scheduler = MemoryAccessScheduler()
-        
+        self.debug: cython.bint = debug
+
         # 8-bit registers
-        self.a = 0x01  # Accumulator
-        self.b = 0x00
-        self.c = 0x13
-        self.d = 0x00
-        self.e = 0xD8
-        self.h = 0x01
-        self.l = 0x4D
-        
+        self.a: cython.int = 0x01  # Accumulator
+        self.b: cython.int = 0x00
+        self.c: cython.int = 0x13
+        self.d: cython.int = 0x00
+        self.e: cython.int = 0xD8
+        self.h: cython.int = 0x01
+        self.l: cython.int = 0x4D
+
         # Initialize HL register
-        self.hl = (self.h << 8) | self.l
-        
+        self.hl: cython.int = (self.h << 8) | self.l
+
         # 16-bit registers
-        self.sp = 0xFFFE  # Stack pointer
-        # PC will be set correctly based on ROM type in load_rom
-        self.pc = 0x0000  # Program counter (will be set by boot ROM or game)
-        
-        # Flags register (F)
-        self.flag_z = False  # Zero flag
-        self.flag_n = False  # Subtract flag
-        self.flag_h = False  # Half carry flag
-        self.flag_c = False  # Carry flag
-        
+        self.sp: cython.int = 0xFFFE  # Stack pointer
+        # PC set to entry point after boot ROM completion
+        self.pc: cython.int = 0x0100  # Program counter (Boot ROM completion state)
+
+        # Flags register (F) - Boot ROM completion state (DMG)
+        self.flag_z: cython.bint = True   # Zero flag = 1
+        self.flag_n: cython.bint = False  # Subtract flag = 0
+        self.flag_h: cython.bint = False  # Half carry flag (depends on header checksum, commonly 0)
+        self.flag_c: cython.bint = False  # Carry flag (depends on header checksum, commonly 0)
+
         # Interrupt master enable
         # self.ime = True  # Replaced by interrupt_master_enable
-        
+
         # Cycle count
-        self.cycles = 0
+        self.cycles: cython.longlong = 0
         
         # Debug tracking
         self._ff_count = 0
@@ -158,23 +169,44 @@ class CPU:
         self.cycles = 0
         
     def init_for_game_rom(self):
-        """Initialize CPU state for game ROM execution (post-boot)"""
-        # Game ROM initial state (as if boot ROM completed)
-        self.a = 0x01
+        """Initialize CPU state for game ROM execution (post-boot ROM完了状態)"""
+        # DMG boot ROM完了時の正確なレジスタ値
+        self.a = 0x01  # Game Boy DMG identification
         self.b = 0x00
-        self.c = 0x13
+        self.c = 0x13  # Boot ROM completion marker
         self.d = 0x00
-        self.e = 0xD8
+        self.e = 0xD8  # Boot ROM specific value
         self.h = 0x01
-        self.l = 0x4D
+        self.l = 0x4D  # Boot ROM specific value
         
-        # Game ROM starts at 0x0100
-        self.pc = 0x0100
-        self.sp = 0xFFFE
+        # フラグレジスタの正確な初期化（AF=01B0 → F=B0）
+        # B0 = 1011 0000 → Z=1, N=0, H=1, C=1
+        self.flag_z = True   # Zero flag set
+        self.flag_n = False  # Subtract flag clear
+        self.flag_h = True   # Half-carry flag set
+        self.flag_c = True   # Carry flag set
+        
+        # スタックポインタとプログラムカウンタ
+        self.sp = 0xFFFE    # Standard stack pointer after boot
+        self.pc = 0x0100    # Game ROM entry point
+        
+        # 割り込み制御の正確な初期化
+        self.interrupt_master_enable = False  # IME disabled after boot
+        self.halted = False
+        self.ei_delay = 0
+        self.halt_bug_active = False
+        
+        # 割り込みレジスタを明示的に初期化
+        self.memory.write_byte(0xFFFF, 0x00)  # IE (Interrupt Enable) = 0x00
+        self.memory.write_byte(0xFF0F, 0x00)  # IF (Interrupt Flag) = 0x00
+        
+        if hasattr(self, 'debug') and self.debug:
+            print(f"🎯 CPU初期化完了: AF=0x{self.a:02X}{self.get_f():02X}, BC=0x{self.b:02X}{self.c:02X}, DE=0x{self.d:02X}{self.e:02X}, HL=0x{self.h:02X}{self.l:02X}")
+            print(f"🎯 PC=0x{self.pc:04X}, SP=0x{self.sp:04X}, IME={self.interrupt_master_enable}")
         
     def handle_interrupts(self):
-        """Handle pending interrupts"""
-        if not self.interrupt_master_enable:  # Interrupt master enable must be on
+        """Handle pending interrupts - PyBoy style"""
+        if not self.interrupt_master_enable:  # IME must be enabled
             return False
             
         # Read interrupt enable and interrupt flag registers
@@ -182,43 +214,40 @@ class CPU:
         if_reg = self.memory.read_byte(0xFF0F)  # IF register
         
         # Check for enabled and pending interrupts
-        pending = ie & if_reg
+        pending = ie & if_reg & 0x1F  # Only check 5 interrupt bits
         
-        if pending & 0x01:  # V-Blank interrupt
-            self._service_interrupt(0x40, 0x01)
-            return True
-        elif pending & 0x02:  # LCDC STAT interrupt
-            self._service_interrupt(0x48, 0x02)
-            return True
-        elif pending & 0x04:  # Timer interrupt
-            self._service_interrupt(0x50, 0x04)
-            return True
-        elif pending & 0x08:  # Serial interrupt
-            self._service_interrupt(0x58, 0x08)
-            return True
-        elif pending & 0x10:  # Joypad interrupt
-            self._service_interrupt(0x60, 0x10)
-            return True
+        if pending > 0:
+            # PyBoy style: interrupt vector array (same as RubyBoy)
+            interrupt_vectors = [0x40, 0x48, 0x50, 0x58, 0x60]
+            
+            # Check each interrupt in priority order
+            for i in range(5):
+                if pending & (1 << i):
+                    vector = interrupt_vectors[i]
+                    flag_bit = 1 << i
+                    
+                    if os.getenv('TIMER_DEBUG') and i == 2:  # Timer interrupt
+                        print(f"[CPU] Servicing timer interrupt! PC=0x{self.pc:04X} -> 0x{vector:04X}")
+                    
+                    # PyBoy style interrupt handling - simpler
+                    self.interrupt_master_enable = False  # Disable IME
+                    
+                    # Clear interrupt flag
+                    new_if = if_reg & ~flag_bit
+                    self.memory.write_byte(0xFF0F, new_if)
+                    
+                    # Push current PC to stack
+                    self.push_word(self.pc)
+                    
+                    # Jump to interrupt vector
+                    self.pc = vector
+                    
+                    # Takes 20 cycles
+                    self.cycles += 20
+                    return True
             
         return False
     
-    def _service_interrupt(self, vector, flag_bit):
-        """Service an interrupt"""
-        # Disable interrupt master enable
-        self.interrupt_master_enable = False
-        
-        # Clear the interrupt flag
-        if_reg = self.memory.read_byte(0xFF0F)
-        self.memory.write_byte(0xFF0F, if_reg & ~flag_bit)
-        
-        # Push current PC to stack
-        self.push_word(self.pc)
-        
-        # Jump to interrupt vector
-        self.pc = vector
-        
-        # Takes 20 cycles
-        self.cycles += 20
         
     def get_f(self):
         """Get flags register value"""
@@ -272,16 +301,21 @@ class CPU:
         self.h = (value >> 8) & 0xFF
         self.l = value & 0xFF
     
-    def fetch_byte(self):
+    def fetch_byte(self) -> cython.int:
         """Fetch next byte from memory at PC"""
-        byte = self.memory.read_byte(self.pc)
+        byte: cython.int = self.memory.read_byte(self.pc)
+
+        # Debug specific PC addresses
+        if os.getenv('TIMER_DEBUG') and self.pc == 0xC370:
+            print(f"[CPU] 🔍 fetch_byte at PC=0x{self.pc:04X} returned 0x{byte:02X}")
+
         self.pc = (self.pc + 1) & 0xFFFF
         return byte
-    
-    def fetch_word(self):
+
+    def fetch_word(self) -> cython.int:
         """Fetch next word (16-bit) from memory at PC"""
-        low = self.fetch_byte()
-        high = self.fetch_byte()
+        low: cython.int = self.fetch_byte()
+        high: cython.int = self.fetch_byte()
         return (high << 8) | low
     
     def push_byte(self, value):
@@ -509,59 +543,68 @@ class CPU:
             self.cycles += 8
 
     
-    def step(self):
+    def step(self) -> cython.longlong:
         """Execute one CPU instruction with proper HALT handling"""
-        # Handle EI delayed enable (IME becomes true after the instruction following EI)
+        # PyBoy style HALT handling - with EI delay support
+        if hasattr(self, 'halted') and self.halted:
+            # Handle EI delay even during HALT
+            if hasattr(self, 'ei_delay') and self.ei_delay > 0:
+                self.ei_delay -= 1
+                if self.ei_delay == 0:
+                    self.interrupt_master_enable = True
+                    if os.getenv('TIMER_DEBUG'):
+                        print(f"[CPU] IME enabled during HALT due to EI delay completion")
+            
+            # Check for interrupts to wake up
+            ie = self.memory.read_byte(0xFFFF)
+            if_reg = self.memory.read_byte(0xFF0F)
+            pending_interrupts = ie & if_reg & 0x1F
+            
+            # Wake up if there are pending interrupts
+            if pending_interrupts > 0:
+                self.halted = False
+                if os.getenv('TIMER_DEBUG'):
+                    print(f"[CPU] CPU woke up from HALT")
+            else:
+                # Remain halted, consume cycles
+                self.cycles += 4
+                return self.cycles
+        
+        # Handle EI delay - PyBoy style: enable IME before next instruction
         if hasattr(self, 'ei_delay') and self.ei_delay > 0:
             self.ei_delay -= 1
             if self.ei_delay == 0:
                 self.interrupt_master_enable = True
-        
-        # If CPU is halted, only wake up on interrupt
-        if hasattr(self, 'halted') and self.halted:
-            # Still process interrupts while halted
-            if self.handle_interrupts():
-                self.halted = False  # Wake up from HALT on interrupt
-                return  # Interrupt was serviced
-            else:
-                # No interrupt, CPU remains halted - consume 4 cycles
-                self.cycles += 4
-                # Execute scheduled memory accesses even when halted
-                self.memory_scheduler.execute_due_accesses(self.cycles, self.memory, self)
-                return
+                if os.getenv('TIMER_DEBUG'):
+                    print(f"[CPU] IME enabled due to EI delay completion")
         
         # Handle interrupts before fetching next instruction
         if self.handle_interrupts():
-            return  # Interrupt was serviced
+            return self.cycles  # Interrupt was serviced
         
-        # HALT bug handling: execute instruction twice if flag is set
+        # Handle HALT bug - execute next instruction twice
         if hasattr(self, 'halt_bug_active') and self.halt_bug_active:
-            # Execute the same instruction twice (Game Boy HALT bug)
+            # HALT bug: next instruction executed twice (Game Boy hardware bug)
             opcode = self.fetch_byte()
             self.execute_instruction(opcode)  # First execution
             
-            # Execute scheduled memory accesses after first execution
-            self.memory_scheduler.execute_due_accesses(self.cycles, self.memory, self)
-            
-            # Reset PC to execute the same instruction again
+            # Second execution: rewind PC and execute again
             self.pc = (self.pc - 1) & 0xFFFF
-            opcode = self.fetch_byte()
-            self.execute_instruction(opcode)  # Second execution (the bug effect)
+            opcode = self.fetch_byte() 
+            self.execute_instruction(opcode)  # Second execution (bug effect)
             
-            # Execute scheduled memory accesses after second execution
-            self.memory_scheduler.execute_due_accesses(self.cycles, self.memory, self)
-            
-            self.halt_bug_active = False  # Clear the flag after double execution
+            self.halt_bug_active = False  # Reset bug state
+            if os.getenv('TIMER_DEBUG'):
+                print(f"[CPU] HALT bug executed: instruction 0x{opcode:02X} ran twice")
         else:
-            # Normal instruction execution
+            # Normal instruction execution - PyBoy style
             opcode = self.fetch_byte()
             self.execute_instruction(opcode)
-            
-            # サイクル精度メモリアクセス実行
-            # 命令実行後、現在のサイクルまでにスケジュールされたアクセスを実行
-            self.memory_scheduler.execute_due_accesses(self.cycles, self.memory, self)
+        
+        # Return current cycle count for timer synchronization
+        return self.cycles
     
-    def execute_instruction(self, opcode):
+    def execute_instruction(self, opcode: cython.int) -> None:
         """Execute instruction based on opcode"""
         # Track PC history for debugging
         if self.debug and len(self._pc_history) < 10:
@@ -612,24 +655,24 @@ class CPU:
         
         # Memory operations
         elif opcode == 0x22:  # LD (HL+), A - Load A into address HL, then increment HL
-            # サイクル精度メモリアクセス: 最後のサイクル（8サイクル後）で書き込み
             hl_addr = self.get_hl()
-            target_cycle = self.cycles + 8
-            self.memory_scheduler.schedule_write(target_cycle, hl_addr, self.a)
-            # HLのインクリメントは即座に実行（メモリアクセスとは独立）
-            self.set_hl((self.get_hl() + 1) & 0xFFFF)
+            self.memory.write_byte(hl_addr, self.a)
+            self.set_hl((hl_addr + 1) & 0xFFFF)
             self.cycles += 8
         elif opcode == 0x32:  # LD (HL-), A - Load A into address HL, then decrement HL
-            self.memory.write_byte(self.get_hl(), self.a)
-            self.set_hl((self.get_hl() - 1) & 0xFFFF)
+            hl_addr = self.get_hl()
+            self.memory.write_byte(hl_addr, self.a)
+            self.set_hl((hl_addr - 1) & 0xFFFF)
             self.cycles += 8
         elif opcode == 0x2A:  # LD A, (HL+) - Load from address HL into A, then increment HL
-            self.a = self.memory.read_byte(self.get_hl())
-            self.set_hl((self.get_hl() + 1) & 0xFFFF)
+            hl_addr = self.get_hl()
+            self.a = self.memory.read_byte(hl_addr)
+            self.set_hl((hl_addr + 1) & 0xFFFF)
             self.cycles += 8
         elif opcode == 0x3A:  # LD A, (HL-) - Load from address HL into A, then decrement HL
-            self.a = self.memory.read_byte(self.get_hl())
-            self.set_hl((self.get_hl() - 1) & 0xFFFF)
+            hl_addr = self.get_hl()
+            self.a = self.memory.read_byte(hl_addr)
+            self.set_hl((hl_addr - 1) & 0xFFFF)
             self.cycles += 8
         
         # High memory operations (0xFF00 + n)
@@ -713,9 +756,7 @@ class CPU:
             self.l = self.memory.read_byte(self.get_hl())
             self.cycles += 8
         elif opcode == 0x7E:  # LD A, (HL)
-            # サイクル精度メモリアクセス: 最後のサイクル（8サイクル後）で読み取り
-            target_cycle = self.cycles + 8
-            self.memory_scheduler.schedule_read(target_cycle, self.get_hl(), 'A')
+            self.a = self.memory.read_byte(self.get_hl())
             self.cycles += 8
         
         # Load from register to memory
@@ -738,9 +779,7 @@ class CPU:
             self.memory.write_byte(self.get_hl(), self.l)
             self.cycles += 8
         elif opcode == 0x77:  # LD (HL), A
-            # サイクル精度メモリアクセス: 最後のサイクル（8サイクル後）で書き込み
-            target_cycle = self.cycles + 8
-            self.memory_scheduler.schedule_write(target_cycle, self.get_hl(), self.a)
+            self.memory.write_byte(self.get_hl(), self.a)
             self.cycles += 8
         
         # Jump and branch instructions
@@ -926,18 +965,10 @@ class CPU:
             self.l = self.dec_8bit(self.l)
             self.cycles += 4
         elif opcode == 0x34:  # INC (HL)
-            # Read-Modify-Write操作: 読み取り→計算→書き込み
-            # 読み取り: 8サイクル後（次から最後のサイクル）
-            # 書き込み: 12サイクル後（最後のサイクル）
             hl_addr = self.get_hl()
-            
-            # 即座に値を読み取って計算（後でサイクル精度版に改良予定）
             value = self.memory.read_byte(hl_addr)
             result = self.inc_8bit(value)
-            
-            # 書き込みをスケジュール
-            write_cycle = self.cycles + 12
-            self.memory_scheduler.schedule_write(write_cycle, hl_addr, result)
+            self.memory.write_byte(hl_addr, result)
             self.cycles += 12
         elif opcode == 0x35:  # DEC (HL)
             value = self.memory.read_byte(self.get_hl())
@@ -1214,29 +1245,38 @@ class CPU:
         elif opcode == 0xF3:  # DI - Disable interrupts
             self.interrupt_master_enable = False
             self.cycles += 4
-        elif opcode == 0xFB:  # EI - Enable interrupts (after next instruction)
-            # Do not enable immediately; schedule after next instruction completes
-            self.ei_delay = 2  # Decremented at start of step; enables IME before third instruction
+        elif opcode == 0xFB:  # EI - Enable interrupts (PyBoy precise style)
+            # PyBoy accurate: 1-cycle delay before IME enable (Game Boy hardware behavior)
+            self.ei_delay = 2  # Enable IME after the instruction FOLLOWING EI
+            if os.getenv('TIMER_DEBUG'):
+                print(f"[CPU] EI instruction executed - IME will be enabled after next instruction")
             self.cycles += 4
         
-        elif opcode == 0x76:  # HALT - Game Boy accurate implementation
-            # HALT behavior depends on interrupt state and pending interrupts
-            ie = self.memory.read_byte(0xFFFF)  # Interrupt Enable
-            if_reg = self.memory.read_byte(0xFF0F)  # Interrupt Flag
-            pending = ie & if_reg
+        elif opcode == 0x76:  # HALT - PyBoy style with HALT bug
+            if os.getenv('TIMER_DEBUG'):
+                print(f"[CPU] HALT instruction executed")
+            
+            # Check for pending interrupts to determine HALT behavior
+            ie = self.memory.read_byte(0xFFFF)  # IE register
+            if_reg = self.memory.read_byte(0xFF0F)  # IF register
+            pending = ie & if_reg & 0x1F
             
             if self.interrupt_master_enable:
-                # Normal HALT: CPU sleeps until interrupt occurs
+                # Normal HALT: enable interrupts, CPU sleeps
                 self.halted = True
+                if os.getenv('TIMER_DEBUG'):
+                    print(f"[CPU] Normal HALT: IME=True, sleeping")
             elif pending:
-                # HALT bug: IME is disabled but interrupts are pending
-                # This is a known Game Boy hardware bug
-                # The instruction immediately after HALT gets executed twice
-                self.halted = False  # Don't actually halt
-                self.halt_bug_active = True  # Mark that next instruction should be executed twice
+                # HALT bug: IME=False but interrupts pending
+                # Next instruction will be executed twice (Game Boy hardware bug)
+                self.halt_bug_active = True
+                if os.getenv('TIMER_DEBUG'):
+                    print(f"[CPU] HALT bug activated: IME=False, pending interrupts=0x{pending:02X}")
             else:
-                # Normal HALT when IME=False and no interrupts pending
+                # Simple HALT: no interrupts pending, just sleep
                 self.halted = True
+                if os.getenv('TIMER_DEBUG'):
+                    print(f"[CPU] Simple HALT: no pending interrupts")
             
             self.cycles += 4
             
