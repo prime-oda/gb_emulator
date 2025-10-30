@@ -1,47 +1,49 @@
 """
 Game Boy Memory Management Unit (MMU)
 Handles memory mapping and bank switching for the Game Boy system.
+
+Cython最適化: Phase 2
 """
 
+try:
+    import cython
+except ImportError:
+    # Cythonがない環境でも動作するようにダミークラス
+    class cython:
+        @staticmethod
+        def declare(*args, **kwargs):
+            pass
+        int = int
+        longlong = int
+        bint = bool
+
 class Memory:
-    def __init__(self, debug=False):
-        self.debug = debug
-        
+    def __init__(self, debug: cython.bint = False):
+        self.debug: cython.bint = debug
+
         # Game Boy memory map
-        self.rom = [0] * 0x8000      # ROM banks 0-1 (32KB)
+        self.rom: list = [0] * 0x8000      # ROM banks 0-1 (32KB)
         self.apu = None              # Will be set by emulator
-        self.vram = [0] * 0x2000     # Video RAM (8KB)
-        self.eram = [0] * 0x2000     # External RAM (8KB)
-        self.wram = [0] * 0x2000     # Work RAM (8KB)
-        self.oam = [0] * 0xA0        # Object Attribute Memory (160 bytes)
-        self.io = [0] * 0x80         # I/O registers (128 bytes)
-        self.hram = [0] * 0x7F       # High RAM (127 bytes)
-        self.ie = 0                  # Interrupt Enable register
-        
+        self.vram: list = [0] * 0x2000     # Video RAM (8KB)
+        self.eram: list = [0] * 0x2000     # External RAM (8KB)
+        self.wram: list = [0] * 0x2000     # Work RAM (8KB)
+        self.oam: list = [0] * 0xA0        # Object Attribute Memory (160 bytes)
+        self.io: list = [0] * 0x80         # I/O registers (128 bytes)
+        self.hram: list = [0] * 0x7F       # High RAM (127 bytes)
+        self.ie: cython.int = 0                  # Interrupt Enable register
+
         # Memory banking
-        self.rom_bank = 1
-        self.ram_bank = 0
-        self.banking_mode = 0
-        self.ram_enabled = False
-        
+        self.rom_bank: cython.int = 1
+        self.ram_bank: cython.int = 0
+        self.banking_mode: cython.int = 0
+        self.ram_enabled: cython.bint = False
+
         # Boot ROM
-        self.boot_rom = [0] * 0x100
-        self.boot_rom_enabled = True
+        self.boot_rom: list = [0] * 0x100
+        self.boot_rom_enabled: cython.bint = False  # Start with boot ROM disabled (post-boot state)
         
-        # Initialize I/O registers for boot ROM
-        self.io[0x26] = 0x80  # NR52: Sound on
-        self.io[0x11] = 0x80  # NR11: Sound length/wave pattern duty
-        self.io[0x12] = 0xF3  # NR12: Channel 1 Volume Envelope
-        self.io[0x25] = 0x77  # NR51: Selection of Sound output terminal
-        self.io[0x24] = 0x77  # NR50: Channel control / ON-OFF / Volume
-        self.io[0x40] = 0x91  # LCDC: LCD on, BG on, sprites on
-        self.io[0x47] = 0xFC  # BGP: Background palette
-        self.io[0x48] = 0xFF  # OBP0: Object palette 0
-        self.io[0x49] = 0xFF  # OBP1: Object palette 1
-        self.io[0x00] = 0x3F  # Joypad: all buttons released
-        
-        # Initialize interrupt registers - CRITICAL for timer tests
-        self.io[0x0F] = 0x00  # IF - Interrupt Flag register (clear all flags)
+        # Initialize I/O registers to Boot ROM completion state (DMG)
+        self.init_post_boot_state()
         
         # Joypad state
         self.joypad_buttons = 0x0F  # All buttons released
@@ -49,15 +51,78 @@ class Memory:
         
         # Timer registers
         self.timer = None  # Will be set by emulator
+    
+    def init_post_boot_state(self):
+        """Initialize I/O registers to Boot ROM completion state (DMG)"""
+        
+        # Input/Peripheral
+        self.io[0x00] = 0xCF  # P1/JOYP
+        self.io[0x01] = 0x00  # SB (Serial transfer data)
+        self.io[0x02] = 0x7E  # SC (Serial transfer control)
+        
+        # Timer/Interrupt
+        self.io[0x04] = 0xAC  # DIV (Divider register) - PyBoy synchronized timing!
+        self.io[0x05] = 0x00  # TIMA (Timer counter)
+        self.io[0x06] = 0x00  # TMA (Timer modulo)
+        self.io[0x07] = 0xF8  # TAC (Timer control) - upper bits set, timer disabled
+        self.io[0x0F] = 0xE1  # IF (Interrupt flag)
+        
+        # Sound registers (excerpt)
+        self.io[0x10] = 0x80  # NR10
+        self.io[0x11] = 0xBF  # NR11
+        self.io[0x12] = 0xF3  # NR12
+        self.io[0x13] = 0xFF  # NR13
+        self.io[0x14] = 0xBF  # NR14
+        
+        self.io[0x16] = 0x3F  # NR21
+        self.io[0x17] = 0x00  # NR22
+        self.io[0x18] = 0xFF  # NR23
+        self.io[0x19] = 0xBF  # NR24
+        
+        self.io[0x1A] = 0x7F  # NR30
+        self.io[0x1B] = 0xFF  # NR31
+        self.io[0x1C] = 0x9F  # NR32
+        self.io[0x1D] = 0xFF  # NR33
+        self.io[0x1E] = 0xBF  # NR34
+        
+        self.io[0x20] = 0xFF  # NR41
+        self.io[0x21] = 0x00  # NR42
+        self.io[0x22] = 0x00  # NR43
+        self.io[0x23] = 0xBF  # NR44
+        
+        self.io[0x24] = 0x77  # NR50
+        self.io[0x25] = 0xF3  # NR51
+        self.io[0x26] = 0xF1  # NR52
+        
+        # LCD/PPU
+        self.io[0x40] = 0x91  # LCDC
+        self.io[0x41] = 0x85  # STAT
+        self.io[0x42] = 0x00  # SCY
+        self.io[0x43] = 0x00  # SCX
+        self.io[0x44] = 0x00  # LY
+        self.io[0x45] = 0x00  # LYC
+        self.io[0x47] = 0xFC  # BGP
+        # OBP0/OBP1 (0x48/0x49) - uninitialized (undefined)
+        self.io[0x4A] = 0x00  # WY
+        self.io[0x4B] = 0x00  # WX
+        
+        # DMA
+        self.io[0x46] = 0xFF  # DMA (DMG value)
+        
+        # Boot ROM disable register
+        self.io[0x50] = 0x01  # Boot ROM disabled
+        
+        # Interrupt Enable (separate from I/O space)
+        self.ie = 0x00
         
         # Serial port
         self.serial = None  # Will be set by emulator
-        self.io[0x04] = 0x00  # DIV - Divider register
+        # DIVレジスタはTimerクラスの統一カウンタから自動計算されるため初期化不要
         self.io[0x05] = 0x00  # TIMA - Timer counter
         self.io[0x06] = 0x00  # TMA - Timer modulo
-        self.io[0x07] = 0x00  # TAC - Timer control  # TAC - Timer control  # TAC - Timer control
+        self.io[0x07] = 0x00  # TAC - Timer control
         
-    def read_byte(self, address):
+    def read_byte(self, address: cython.int) -> cython.int:
         """Read a byte from the specified memory address"""
         address &= 0xFFFF
         
@@ -136,6 +201,17 @@ class Memory:
                     return self.io[address - 0xFF00]
             elif 0xFF04 <= address <= 0xFF07:  # Timer registers
                 if self.timer:
+                    # PyBoy方式: タイマーレジスタアクセス時にもtick()を呼ぶ
+                    if hasattr(self, 'cpu') and self.cpu:
+                        import os
+                        if os.getenv('TIMER_DEBUG'):
+                            print(f'[Memory READ] Calling timer.tick({self.cpu.cycles}) for address 0x{address:04X}')
+                        timer_interrupt_occurred = self.timer.tick(self.cpu.cycles)
+                        if timer_interrupt_occurred:
+                            # タイマー割り込みフラグを設定（再帰回避のため直接IOレジスタを操作）
+                            if_reg = self.io[0x0F]
+                            if not (if_reg & 0x04):
+                                self.io[0x0F] = if_reg | 0x04
                     return self.timer.read_register(address)
                 else:
                     return self.io[address - 0xFF00]
@@ -152,10 +228,17 @@ class Memory:
         
         return 0xFF
     
-    def write_byte(self, address, value):
+    def write_byte(self, address: cython.int, value: cython.int) -> None:
         """Write a byte to the specified memory address"""
         address &= 0xFFFF
         value &= 0xFF
+        
+        # Debug: IF register writes
+        if address == 0xFF0F and self.debug:
+            old_value = self.io[0x0F] if 0x0F < len(self.io) else 0
+            print(f"[MEMORY] IF write: 0x{old_value:02X} -> 0x{value:02X} at address 0xFF0F")
+            if (value & 0x04) and not (old_value & 0x04):
+                print(f"[MEMORY] 🔥 Timer interrupt flag SET in IF register!")
         
         if address < 0x2000:
             # RAM Enable
@@ -218,6 +301,17 @@ class Memory:
                     self.io[address - 0xFF00] = value
             elif 0xFF04 <= address <= 0xFF07:  # Timer registers
                 if self.timer:
+                    # PyBoy方式: タイマーレジスタアクセス時にもtick()を呼ぶ
+                    if hasattr(self, 'cpu') and self.cpu:
+                        import os
+                        if os.getenv('TIMER_DEBUG'):
+                            print(f'[Memory WRITE] Calling timer.tick({self.cpu.cycles}) for address 0x{address:04X}, value=0x{value:02X}')
+                        timer_interrupt_occurred = self.timer.tick(self.cpu.cycles)
+                        if timer_interrupt_occurred:
+                            # タイマー割り込みフラグを設定（再帰回避のため直接IOレジスタを操作）
+                            if_reg = self.io[0x0F]
+                            if not (if_reg & 0x04):
+                                self.io[0x0F] = if_reg | 0x04
                     self.timer.write_register(address, value)
                 else:
                     self.io[address - 0xFF00] = value
@@ -288,6 +382,12 @@ class Memory:
             self.io[0x48] = 0xFF  # OBP0: Object palette 0
             self.io[0x49] = 0xFF  # OBP1: Object palette 1
             self.io[0x26] = 0x80  # NR52: Sound on
+            
+            # Timer registers (post-boot state)
+            # DIVレジスタはTimerクラスの統一カウンタで管理されるため、ここでは初期化不要
+            self.io[0x05] = 0x00  # TIMA: Reset to 0
+            self.io[0x06] = 0x00  # TMA: Reset to 0  
+            self.io[0x07] = 0x00  # TAC: Timer disabled
             
             # Game ROM starts at 0x0100
             self.is_boot_rom = False

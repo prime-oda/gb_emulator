@@ -1,6 +1,8 @@
 """
 Game Boy APU (Audio Processing Unit)
 Handles sound generation and audio processing for the Game Boy emulator.
+
+Cython最適化: Phase 2
 """
 
 import pygame
@@ -9,11 +11,23 @@ import threading
 import time
 from collections import deque
 
+try:
+    import cython
+except ImportError:
+    # Cythonがない環境でも動作するようにダミークラス
+    class cython:
+        @staticmethod
+        def declare(*args, **kwargs):
+            pass
+        int = int
+        longlong = int
+        bint = bool
+
 
 class APU:
-    def __init__(self, memory, debug=False):
+    def __init__(self, memory, debug: cython.bint = False):
         self.memory = memory
-        self.debug = debug
+        self.debug: cython.bint = debug
         
         # 🎵 高品質音声設定 - 44.1kHz対応
         self.sample_rate = 44100     # Game Boy準拠の高品質サンプルレート

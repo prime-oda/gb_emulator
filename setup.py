@@ -28,10 +28,10 @@ compiler_directives = {
 # コンパイル対象モジュール（段階的に追加）
 modules_to_compile = [
     "src/gameboy/timer.py",    # Phase 1a: 最も単純なモジュール ✅
-    "src/gameboy/cpu.py",      # Phase 1b: 最重要（60-70%の実行時間）
-    # "src/gameboy/memory.py", # Phase 2: CPU依存（後で追加）
-    # "src/gameboy/ppu.py",    # Phase 3: Memory依存（後で追加）
-    # "src/gameboy/apu.py",    # Phase 4: Memory依存（後で追加）
+    "src/gameboy/cpu.py",      # Phase 1b: 最重要（60-70%の実行時間）✅
+    "src/gameboy/memory.py",   # Phase 2a: Memory管理 ✅
+    "src/gameboy/ppu.py",      # Phase 2b: グラフィックス処理 ✅
+    "src/gameboy/apu.py",      # Phase 2c: 音声処理 ✅
 ]
 
 setup(

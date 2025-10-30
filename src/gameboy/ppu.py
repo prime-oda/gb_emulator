@@ -1,18 +1,32 @@
 """
 Game Boy PPU (Picture Processing Unit)
 Handles graphics rendering, LCD timing, and video memory management.
+
+Cython最適化: Phase 2
 """
 
 import pygame
 import numpy
 import logging
 
+try:
+    import cython
+except ImportError:
+    # Cythonがない環境でも動作するようにダミークラス
+    class cython:
+        @staticmethod
+        def declare(*args, **kwargs):
+            pass
+        int = int
+        longlong = int
+        bint = bool
+
 
 class PPU:
-    def __init__(self, memory, serial=None, debug=False):
+    def __init__(self, memory, serial=None, debug: cython.bint = False):
         self.memory = memory
         self.serial = serial  # Reference to serial port for overlay display
-        self.debug = debug
+        self.debug: cython.bint = debug
 
         # Configure logging - only to file, not console
         if self.debug:
