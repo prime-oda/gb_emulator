@@ -469,12 +469,154 @@ uv run python main.py <ROM> --batch --auto-exit
 - **オーバーヘッド削減**: PPU/Timer/APU/Serial更新頻度を50%削減
 - **実行効率**: CPUループオーバーヘッド削減
 
-### 次のステップ
-TODO_IMPROVE.mdのPhase 1（Cython導入）に進むことで、さらに**10-30倍の高速化**が期待される。
+---
+
+## 🚀 Phase 1-2: Cython最適化完了 (2025年10月30日)
+
+### 驚異的な成果達成
+✅ **4.53倍累積高速化を実現** - Phase 0前と比較して353%の性能向上
+
+### パフォーマンス測定結果（最終）
+テストROM: `cpu_instrs/individual/01-special.gb`
+
+| フェーズ | 実装内容 | 実行時間 | 単独効果 | 累積倍率 |
+|---------|----------|----------|----------|----------|
+| ベースライン | Pure Python | 8.97秒 | - | 1.00x |
+| Phase 0 | バッチ処理 | 4.47秒 | 2.01x | 2.01x |
+| Phase 1a | timer.py Cython | 4.38秒 | 1.02x | 2.05x |
+| Phase 1b | cpu.py Cython | 3.19秒 | 1.37x | 2.81x |
+| **Phase 2** | **全モジュールCython** | **1.98秒** | **1.61x** | **4.53x** ✅ |
+
+### コンパイル済みモジュール（合計1.5MB）
+
+| モジュール | サイズ | 役割 | 重要度 |
+|-----------|--------|------|--------|
+| timer.py | 146KB | タイマー管理 | ⭐ |
+| **cpu.py** | **523KB** | CPU命令実行 | ⭐⭐⭐ 最重要 |
+| memory.py | 186KB | メモリ管理 | ⭐⭐ |
+| ppu.py | 381KB | グラフィックス処理 | ⭐⭐ |
+| apu.py | 261KB | 音声処理 | ⭐ |
+
+### 実装完了項目
+
+#### Phase 1a: timer.py Cython化
+- Pure Python Mode型アノテーション追加
+- cython.int, cython.longlong, cython.bint使用
+- PyBoy互換のインポートフォールバック実装
+
+#### Phase 1b: cpu.py Cython化（最大の効果）
+- 8ビットレジスタ、16ビットレジスタに型指定
+- fetch_byte(), fetch_word(), step(), execute_instruction()に型追加
+- cycles: cython.longlongで精密管理
+
+#### Phase 2: 残り全モジュールCython化
+- memory.py: read_byte(), write_byte()最適化
+- ppu.py: グラフィックス処理最適化
+- apu.py: 音声処理最適化
+
+### ビルド方法
+
+```bash
+# 全モジュールをCythonコンパイル
+uv run python setup.py build_ext --inplace
+
+# .soファイルを適切な場所にコピー
+cp build/lib.macosx-11.0-arm64-cpython-310/src/gameboy/*.so src/gameboy/
+
+# バッチ処理＋Cython最適化で実行
+uv run python main.py <ROM> --batch --auto-exit
+```
+
+### 技術的成果
+- ✅ **Pure Python互換性**: 全モジュールでフォールバック実装
+- ✅ **互換性維持**: 01-special.gb完全合格
+- ✅ **段階的コンパイル**: setup.pyで管理しやすい構成
+- ✅ **型安全性**: Cythonの型チェックによるバグ防止
 
 ---
 
-## 今後の開発予定
+## 📋 残り作業・今後の開発予定
+
+### Phase 3: さらなる最適化（目標: 10-30倍累積）
+
+現在4.53倍達成。TODO_IMPROVE.mdのPhase 3目標（50-100倍）に向けて、
+さらに2-5倍の最適化が可能。
+
+#### 高優先度最適化項目
+
+1. **NumPy配列の活用**（期待効果: 1.3-1.5倍）
+   - PPUフレームバッファをNumPy配列化
+   - メモリ領域（VRAM, WRAM）をNumPy配列化
+   - C言語レベルのメモリアクセス最適化
+
+2. **詳細な型アノテーション追加**（期待効果: 1.2-1.3倍）
+   - execute_instruction()内の全ローカル変数に型指定
+   - 配列アクセスの境界チェック無効化（@cython.boundscheck(False)）
+   - C言語除算の使用（@cython.cdivision(True)）
+
+3. **命令ディスパッチ最適化**（期待効果: 1.5-2倍）
+   - 246個のif-elif chainをジャンプテーブル化
+   - 関数ポインタ配列による O(1) ディスパッチ
+   - PyBoy方式の実装参考
+
+4. **プロファイリングベース最適化**（期待効果: 1.2-1.5倍）
+   - cProfile詳細分析
+   - Cythonアノテーションファイル（.html）のホットスポット確認
+   - 黄色い行（Python相当コード）を重点的に最適化
+
+5. **GILロック解放**（期待効果: 1.3-1.5倍）
+   - @cython.nogilデコレータ使用
+   - マルチスレッド対応（将来的）
+
+#### 中優先度項目
+
+6. **Mooney Test Suite対応**
+   - PPU、APU、メモリ制御の詳細互換性テスト
+   - https://github.com/Gekkio/mooneye-gb
+
+7. **02-interrupts.gb完全対応**
+   - Blargg Test #2「Timer doesn't work」解決
+   - タイマー精密制御の最終調整
+
+8. **セーブ機能実装**
+   - SRAM保存/読み込み
+   - RTC（リアルタイムクロック）サポート
+
+#### 低優先度項目
+
+9. **デバッガー機能**
+   - ステップ実行
+   - ブレークポイント
+   - レジスタ/メモリ監視
+
+10. **Game Boy Color対応**
+    - 互換性拡張
+    - カラーパレット
+
+11. **UI改善**
+    - デバッグ情報表示
+    - 設定画面
+
+### 🎯 開発ロードマップ
+
+**短期（1-2週間）**: Phase 3の一部実装
+- NumPy配列化
+- 詳細な型アノテーション
+- プロファイリング分析
+
+**中期（1ヶ月）**: Phase 3完了
+- 命令ディスパッチ最適化
+- GILロック解放
+- 目標: 10-15倍累積高速化
+
+**長期（2-3ヶ月）**: 機能拡張
+- Mooney Test Suite対応
+- セーブ機能実装
+- デバッガー機能
+
+---
+
+## 今後の開発予定（優先順位順）
 
 1. **タイマー精密制御**: 02-interrupts.gb完全対応
 2. **100%互換性達成**: 11/11 Blarggテスト全通過
