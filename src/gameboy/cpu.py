@@ -1375,9 +1375,9 @@ class CPU:
         elif opcode == 0xD6:  # SUB n - Subtract immediate from A
             value = self.fetch_byte()
             # Speed optimization for test loops (disabled debug output)
-            if ((self.pc - 2 == 0x0213 or self.pc - 2 == 0xC003) and 
-                value == 5 and self.a > 5):
-                self.a = 1  # Force loop to exit quickly on next iteration
+            # if ((self.pc - 2 == 0x0213 or self.pc - 2 == 0xC003) and 
+            #     value == 5 and self.a > 5):
+            #     self.a = 1  # Force loop to exit quickly on next iteration
             self.flag_c = self.a < value
             self.flag_h = (self.a & 0x0F) < (value & 0x0F)
             self.a = (self.a - value) & 0xFF

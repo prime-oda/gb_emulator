@@ -5,6 +5,8 @@ Handles serial communication for Game Boy test ROMs and multiplayer games.
 Primary use case: Blargg test ROM output via serial port.
 """
 
+import os
+
 class SerialPort:
     def __init__(self, memory):
         self.memory = memory
@@ -97,6 +99,16 @@ class SerialPort:
             self.text_output += '\n'
             print(f"📤 Serial Output: [NEWLINE]")
             print(f"📝 Complete Line: \"{self.text_output.rstrip()}\"")
+            
+            # Check for test results
+            if os.getenv('TIMER_DEBUG'):
+                if "passed" in self.text_output.lower():
+                    print(f"🎉 TEST PASSED DETECTED!")
+                elif "failed" in self.text_output.lower():
+                    print(f"❌ TEST FAILED DETECTED!")
+                
+                # Show the full text output for debugging
+                print(f"📝 Full text output so far: {repr(self.text_output)}")
         elif sb == 0x0D:  # Carriage return
             print(f"📤 Serial Output: [CR]")
         else:
@@ -128,6 +140,14 @@ class SerialPort:
             if self.transfer_cycles >= self.cycles_per_byte:
                 self.complete_transfer()
                 
+    def get_full_output(self):
+        """Get the full, unprocessed text output."""
+        return self.text_output
+
+    def has_output(self, text):
+        """Check if the given text is in the output."""
+        return text in self.text_output
+        
     def get_output_text(self):
         """Get accumulated text output"""
         return self.text_output

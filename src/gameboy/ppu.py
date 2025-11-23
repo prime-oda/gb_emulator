@@ -946,18 +946,18 @@ class PPU:
             if self.mode == 2 and self.cycles >= self.mode_2_cycles:
                 # OAM スキャン → VRAM アクセス
                 self.mode = 3
-                self.cycles = 0
+                self.cycles -= self.mode_2_cycles
             elif self.mode == 3 and self.cycles >= self.mode_3_cycles:
                 # VRAM アクセス → H-Blank
                 self.mode = 0
-                self.cycles = 0
+                self.cycles -= self.mode_3_cycles
                 # スキャンライン描画実行
                 self.render_scanline()
             elif self.mode == 0 and self.cycles >= self.mode_0_cycles:
                 # H-Blank → 次のスキャンライン
                 self.scan_line += 1
                 self.memory.write_byte(0xFF44, self.scan_line)  # LY レジスタ更新
-                self.cycles = 0
+                self.cycles -= self.mode_0_cycles
                 if self.scan_line < 144:
                     self.mode = 2  # 次の OAM スキャン
                 else:
@@ -968,7 +968,7 @@ class PPU:
             if self.mode == 1 and self.cycles >= self.scanline_cycles:
                 self.scan_line += 1
                 self.memory.write_byte(0xFF44, self.scan_line)  # LY レジスタ更新
-                self.cycles = 0
+                self.cycles -= self.scanline_cycles
                 if self.scan_line >= 154:
                     self.scan_line = 0
                     self.memory.write_byte(0xFF44, self.scan_line)
