@@ -86,3 +86,9 @@ build/
 *.html
 dist/
 *.egg-info/
+
+# External references (large repos)
+external/
+
+# IDE specific settings
+.kiro/
