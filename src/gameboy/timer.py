@@ -43,6 +43,9 @@ class Timer:
         # メモリ参照保存
         self.memory = memory
         
+        # PPU参照（メモリタイミングテスト対応）
+        self.ppu = None  # emulatorで設定
+        
     def reset(self):
         """PyBoy互換のリセット処理"""
         # TODO: Should probably one be DIV=0, but this makes a bunch of mooneye tests pass
@@ -212,6 +215,13 @@ class Timer:
 
         # PyBoy準拠: メモリへの書き込みは行わない（read_register()で値を返す）
         self._cycles_to_interrupt = ((0x100 - self.TIMA) << divider) - self.TIMA_counter
+        
+        # メモリタイミングテスト対応: PPUも同時に進める
+        if self.ppu and cycles > 0:
+            self.ppu.step(cycles)
+            # LYレジスタをメモリに反映
+            if self.memory:
+                self.memory.io[0x44] = self.ppu.get_ly()
 
         return ret
             

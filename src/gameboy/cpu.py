@@ -102,6 +102,7 @@ class CPU:
     def __init__(self, memory, debug: cython.bint = False):
         self.memory = memory
         self.debug: cython.bint = debug
+        self.timer = None  # timerはemulatorで設定
 
         # 8-bit registers
         self.a: cython.int = 0x01  # Accumulator
@@ -387,16 +388,19 @@ class CPU:
             elif reg == 5:  # L
                 self.flag_z = not bool(self.l & (1 << bit))
             elif reg == 6:  # (HL)
+                # BIT b,(HL)は12T（CBフェッチ4T + メモリアクセス4T + 実行4T）
                 hl_addr = (self.h << 8) | self.l
                 value = self.memory.read_byte(hl_addr)
                 self.flag_z = not bool(value & (1 << bit))
-                self.cycles += 4  # Extra 4 T-cycles for memory access (12T total)
+                self.cycles += 8  # メモリアクセス + 実行分（合計12T）
             elif reg == 7:  # A
                 self.flag_z = not bool(self.a & (1 << bit))
             
             self.flag_n = False
             self.flag_h = True
-            self.cycles += 8  # Base 8 T-cycles for BIT operations
+            # cycles += 8は削除（CBフェッチ分4Tは既に外部で加算済み）
+            # BIT命令自体は追加サイクルなし（レジスタアクセスのみ）
+            # (HL)の場合のみメモリアクセス分4Tを加算（上記で処理済み）
         
         # SET operations (0xC0-0xFF) - set bit n in register
         elif opcode >= 0xC0 and opcode <= 0xFF:
@@ -420,11 +424,13 @@ class CPU:
                 value = self.memory.read_byte(hl_addr)
                 value |= (1 << bit)
                 self.memory.write_byte(hl_addr, value)
-                self.cycles += 8  # Extra 8 T-cycles for memory access (16T total)
+                self.cycles += 12  # メモリR/W + 実行分（合計16T）
             elif reg == 7:  # A
                 self.a |= (1 << bit)
             
-            self.cycles += 8  # Base 8 T-cycles for SET operations
+            # cycles += 8は削除（CBフェッチ分4Tは既に外部で加算済み）
+            # SET/RES命令自体は追加サイクルなし（レジスタアクセスのみ）
+            # (HL)の場合のみメモリアクセス分を加算（上記で処理済み）
         
         # RES operations (0x80-0xBF) - reset bit n in register
         elif opcode >= 0x80 and opcode <= 0xBF:
@@ -448,11 +454,11 @@ class CPU:
                 value = self.memory.read_byte(hl_addr)
                 value &= ~(1 << bit)
                 self.memory.write_byte(hl_addr, value)
-                self.cycles += 8  # Extra 8 T-cycles for memory access (16T total)
+                self.cycles += 12  # メモリR/W + 実行分（合計16T）
             elif reg == 7:  # A
                 self.a &= ~(1 << bit)
             
-            self.cycles += 8  # Base 8 T-cycles for RES operations
+            # cycles += 8は削除（CBフェッチ分4Tは既に外部で加算済み）
         
         # Rotate and shift operations (0x00-0x3F)
         elif opcode >= 0x00 and opcode <= 0x3F:
@@ -475,7 +481,7 @@ class CPU:
             elif reg == 6:  # (HL)
                 hl_addr = (self.h << 8) | self.l
                 value = self.memory.read_byte(hl_addr)
-                self.cycles += 8  # Extra 8 T-cycles for memory access (16T total)
+                self.cycles += 12  # メモリR/W + 実行分（合計16T）
             elif reg == 7:  # A
                 value = self.a
             
@@ -535,7 +541,7 @@ class CPU:
             elif reg == 7:  # A
                 self.a = value
             
-            self.cycles += 8  # Base 8 T-cycles for rotate/shift operations
+            # cycles += 8は削除（CBフェッチ分4Tは既に外部で加算済み）
         
         else:
             if self.debug:
@@ -677,17 +683,29 @@ class CPU:
         
         # High memory operations (0xFF00 + n)
         elif opcode == 0xE0:  # LD (0xFF00+n), A
-            address = 0xFF00 + self.fetch_byte()
-            self.memory.write_byte(address, self.a)
-            self.cycles += 12
+            # PyBoy方式: cycles加算のみ（timer更新はmemory層に任せる）
+            self.cycles += 4  # フェッチ分
+            n = self.fetch_byte()
+            addr = 0xFF00 + n
+            self.memory.write_byte(addr, self.a)
+            self.cycles += 8  # メモリアクセス分
         elif opcode == 0xE2:  # LD (0xFF00+C), A
             address = 0xFF00 + self.c
             self.memory.write_byte(address, self.a)
             self.cycles += 8
         elif opcode == 0xF0:  # LD A, (0xFF00+n)
-            address = 0xFF00 + self.fetch_byte()
-            self.a = self.memory.read_byte(address)
-            self.cycles += 12
+            # PyBoy方式: memory.read_byte()内でtimer.tick()が呼ばれる
+            # timer.tick()の二重呼び出しを避けるため、命令内では呼ばない
+            
+            # cycles加算のみ（timer更新はmemory層に任せる）
+            self.cycles += 4  # フェッチ分
+            n = self.fetch_byte()
+            
+            # メモリアクセス（この時点でmemory.read_byte()内でtimer.tick()呼ばれる）
+            addr = 0xFF00 + n
+            self.a = self.memory.read_byte(addr)
+            
+            self.cycles += 8  # メモリアクセス分
         elif opcode == 0xF8:  # LD HL, SP+n
             offset = self.fetch_byte()
             if offset > 127:
@@ -701,13 +719,17 @@ class CPU:
             self.cycles += 12        
         # Absolute memory operations
         elif opcode == 0xEA:  # LD (nn), A
+            # PyBoy方式: cycles加算のみ（timer更新はmemory層に任せる）
+            self.cycles += 8  # フェッチ分（2バイト）
             address = self.fetch_word()
             self.memory.write_byte(address, self.a)
-            self.cycles += 16
+            self.cycles += 8  # メモリアクセス分
         elif opcode == 0xFA:  # LD A, (nn)
+            # PyBoy方式: cycles加算のみ（timer更新はmemory層に任せる）
+            self.cycles += 8  # フェッチ分（2バイト）
             address = self.fetch_word()
             self.a = self.memory.read_byte(address)
-            self.cycles += 16
+            self.cycles += 8  # メモリアクセス分
         
         # Register to register loads
         elif opcode == 0x40:  # LD B, B
@@ -1063,6 +1085,8 @@ class CPU:
         
         # Bit operations (CB prefix)
         elif opcode == 0xCB:  # CB-prefixed opcodes
+            # PyBoy方式: CBフェッチ分を先に加算
+            self.cycles += 4  # CB opcode fetch
             cb_opcode = self.fetch_byte()
             self.execute_cb_instruction(cb_opcode)
         elif opcode == 0x17:  # RLA - Rotate A left through carry
@@ -1368,10 +1392,12 @@ class CPU:
             self.l = result & 0xFF
             self.cycles += 8
         elif opcode == 0x36:  # LD (HL), n - Load immediate into address HL
+            # PyBoy方式: cycles加算のみ（timer更新はmemory層に任せる）
+            self.cycles += 4  # フェッチ分
             value = self.fetch_byte()
             address = (self.h << 8) | self.l
             self.memory.write_byte(address, value)
-            self.cycles += 12
+            self.cycles += 8  # メモリアクセス分
         elif opcode == 0xD6:  # SUB n - Subtract immediate from A
             value = self.fetch_byte()
             # Speed optimization for test loops (disabled debug output)

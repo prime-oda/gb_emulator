@@ -42,6 +42,12 @@ class GameBoy:
         self.memory.serial = self.serial
         self.memory.cpu = self.cpu  # PyBoy方式: タイマーレジスタアクセス時のtick()呼び出しのため
         
+        # CPUにtimer参照を設定（メモリタイミングテスト対応）
+        self.cpu.timer = self.timer
+        
+        # timerにppu参照を設定（メモリタイミングテスト対応）
+        self.timer.ppu = self.ppu
+         
         self.running = True  # エミュレータを実行状態に設定
         self.auto_exit = False  # 自動終了フラグ
         
