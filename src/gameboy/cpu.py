@@ -988,10 +988,22 @@ class CPU:
                 self.cycles += 12
             else:
                 self.cycles += 8
-        elif opcode == 0xC3:  # JP nn - Absolute jump
-            target = self.fetch_word()
+        elif opcode == 0xC3:  # JP nn - 完全マイクロコード化
+            # フェーズ1: オペランドローワイトフェッチ (4T)
+            low = self.fetch_byte()
+            self.cycles += 4
+            self.run_until_cycle(self.cycles)
+            
+            # フェーズ2: オペランドハイバイトフェッチ (4T)
+            high = self.fetch_byte()
+            self.cycles += 4
+            self.run_until_cycle(self.cycles)
+            
+            # フェーズ3: PC更新 (4T)
+            target = (high << 8) | low
             self.pc = target
-            self.cycles += 16
+            self.cycles += 4
+            self.run_until_cycle(self.cycles)
         elif opcode == 0xC2:  # JP NZ, nn - Jump if not zero
             address = self.fetch_word()
             if not self.flag_z:
@@ -1025,11 +1037,34 @@ class CPU:
             self.cycles += 4
         
         # Call and return instructions
-        elif opcode == 0xCD:  # CALL nn
-            address = self.fetch_word()
-            self.push_word(self.pc)
+        elif opcode == 0xCD:  # CALL nn - 完全マイクロコード化
+            # フェーズ1: オペランドローワイトフェッチ (4T)
+            low = self.fetch_byte()
+            self.cycles += 4
+            self.run_until_cycle(self.cycles)
+            
+            # フェーズ2: オペランドハイバイトフェッチ (4T)
+            high = self.fetch_byte()
+            self.cycles += 4
+            self.run_until_cycle(self.cycles)
+            
+            # フェーズ3: リターンアドレスPUSH（ハイ）(4T)
+            self.sp = (self.sp - 1) & 0xFFFF
+            self.memory.write_byte(self.sp, (self.pc >> 8) & 0xFF)
+            self.cycles += 4
+            self.run_until_cycle(self.cycles)
+            
+            # フェーズ4: リターンアドレスPUSH（ロー）(4T)
+            self.sp = (self.sp - 1) & 0xFFFF
+            self.memory.write_byte(self.sp, self.pc & 0xFF)
+            self.cycles += 4
+            self.run_until_cycle(self.cycles)
+            
+            # フェーズ5: PC更新 (4T)
+            address = (high << 8) | low
             self.pc = address
-            self.cycles += 24
+            self.cycles += 4
+            self.run_until_cycle(self.cycles)
         elif opcode == 0xC4:  # CALL NZ, nn
             address = self.fetch_word()
             if not self.flag_z:
@@ -1062,9 +1097,26 @@ class CPU:
                 self.cycles += 24
             else:
                 self.cycles += 12
-        elif opcode == 0xC9:  # RET
-            self.pc = self.pop_word()
-            self.cycles += 16
+        elif opcode == 0xC9:  # RET - 完全マイクロコード化
+            # フェーズ1: リターンアドレスPOP（ロー）(4T)
+            low = self.memory.read_byte(self.sp)
+            self.sp = (self.sp + 1) & 0xFFFF
+            self.cycles += 4
+            self.run_until_cycle(self.cycles)
+            
+            # フェーズ2: リターンアドレスPOP（ハイ）(4T)
+            high = self.memory.read_byte(self.sp)
+            self.sp = (self.sp + 1) & 0xFFFF
+            self.cycles += 4
+            self.run_until_cycle(self.cycles)
+            
+            # フェーズ3: PC更新 (4T)
+            self.pc = (high << 8) | low
+            self.cycles += 4
+            self.run_until_cycle(self.cycles)
+            
+            # フェーズ4: 内部処理 (4T)
+            self.cycles += 4
         elif opcode == 0xC0:  # RET NZ
             if not self.flag_z:
                 self.pc = self.pop_word()
