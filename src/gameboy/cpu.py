@@ -1090,43 +1090,55 @@ class CPU:
             else:
                 self.cycles += 8
         
-        # Arithmetic operations
-        elif opcode == 0x04:  # INC B
+        # Arithmetic operations - レジスタINC/DECをマイクロコード化
+        elif opcode == 0x04:  # INC B - マイクロコード化
             self.b = self.inc_8bit(self.b)
             self.cycles += 4
-        elif opcode == 0x05:  # DEC B
+            self.run_until_cycle(self.cycles)
+        elif opcode == 0x05:  # DEC B - マイクロコード化
             self.b = self.dec_8bit(self.b)
             self.cycles += 4
-        elif opcode == 0x0C:  # INC C
+            self.run_until_cycle(self.cycles)
+        elif opcode == 0x0C:  # INC C - マイクロコード化
             self.c = self.inc_8bit(self.c)
             self.cycles += 4
-        elif opcode == 0x0D:  # DEC C
+            self.run_until_cycle(self.cycles)
+        elif opcode == 0x0D:  # DEC C - マイクロコード化
             self.c = self.dec_8bit(self.c)
             self.cycles += 4
-        elif opcode == 0x14:  # INC D
+            self.run_until_cycle(self.cycles)
+        elif opcode == 0x14:  # INC D - マイクロコード化
             self.d = self.inc_8bit(self.d)
             self.cycles += 4
-        elif opcode == 0x15:  # DEC D
+            self.run_until_cycle(self.cycles)
+        elif opcode == 0x15:  # DEC D - マイクロコード化
             self.d = self.dec_8bit(self.d)
             self.cycles += 4
-        elif opcode == 0x1C:  # INC E
+            self.run_until_cycle(self.cycles)
+        elif opcode == 0x1C:  # INC E - マイクロコード化
             self.e = self.inc_8bit(self.e)
             self.cycles += 4
-        elif opcode == 0x1D:  # DEC E
+            self.run_until_cycle(self.cycles)
+        elif opcode == 0x1D:  # DEC E - マイクロコード化
             self.e = self.dec_8bit(self.e)
             self.cycles += 4
-        elif opcode == 0x24:  # INC H
+            self.run_until_cycle(self.cycles)
+        elif opcode == 0x24:  # INC H - マイクロコード化
             self.h = self.inc_8bit(self.h)
             self.cycles += 4
-        elif opcode == 0x25:  # DEC H
+            self.run_until_cycle(self.cycles)
+        elif opcode == 0x25:  # DEC H - マイクロコード化
             self.h = self.dec_8bit(self.h)
             self.cycles += 4
-        elif opcode == 0x2C:  # INC L
+            self.run_until_cycle(self.cycles)
+        elif opcode == 0x2C:  # INC L - マイクロコード化
             self.l = self.inc_8bit(self.l)
             self.cycles += 4
-        elif opcode == 0x2D:  # DEC L
+            self.run_until_cycle(self.cycles)
+        elif opcode == 0x2D:  # DEC L - マイクロコード化
             self.l = self.dec_8bit(self.l)
             self.cycles += 4
+            self.run_until_cycle(self.cycles)
         elif opcode == 0x34:  # INC (HL) - マイクロコード化
             hl_addr = self.get_hl()
             # Read
@@ -1149,12 +1161,14 @@ class CPU:
             # Write
             self.memory.write_byte(hl_addr, result)
             self.cycles += 4
-        elif opcode == 0x3C:  # INC A
+        elif opcode == 0x3C:  # INC A - マイクロコード化
             self.a = self.inc_8bit(self.a)
             self.cycles += 4
-        elif opcode == 0x3D:  # DEC A
+            self.run_until_cycle(self.cycles)
+        elif opcode == 0x3D:  # DEC A - マイクロコード化
             self.a = self.dec_8bit(self.a)
             self.cycles += 4
+            self.run_until_cycle(self.cycles)
         
         # 16-bit arithmetic
         elif opcode == 0x03:  # INC BC
