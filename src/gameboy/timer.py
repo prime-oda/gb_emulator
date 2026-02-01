@@ -144,14 +144,10 @@ class Timer:
                 print(f"[Timer] DIV reset to 0")
 
         elif address == 0xFF05:  # TIMA
+            # PyBoy方式: 単純な値の代入のみ
             if self.debug_enabled and os.getenv('TIMER_DEBUG'):
                 print(f"[Timer] TIMA write: 0x{self.TIMA:02X} -> 0x{value:02X}")
             self.TIMA = value
-
-            # バッチ処理用: _cycles_to_interruptを更新（タイマー有効時のみ）
-            if self.TAC & 0b100:
-                divider = self.dividers[self.TAC & 0b11]
-                self._cycles_to_interrupt = ((0x100 - self.TIMA) << divider) - self.TIMA_counter
 
         elif address == 0xFF06:  # TMA
             if self.debug_enabled and os.getenv('TIMER_DEBUG'):
