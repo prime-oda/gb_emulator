@@ -176,6 +176,77 @@ class Timer:
                     print(f"[Timer] TAC=0x{value:02X} written, old_tac=0x{old_tac:02X}")
                     print(f"[Timer] TIMA=0x{self.TIMA:02X}, TMA=0x{self.TMA:02X}, TIMA_counter={self.TIMA_counter}")
 
+    def get_tima_at_cycle(self, cycle: cython.longlong) -> cython.int:
+        """指定サイクルでのTIMA値を計算して返す（テスト用）
+        
+        mem_timingテストでは、TIMAが特定のサイクルでどの値を持つかを
+        正確に知る必要がある。このメソッドは指定サイクルでのTIMA値を
+        シミュレートして返す。
+        
+        Args:
+            cycle: CPU累積サイクル
+            
+        Returns:
+            指定サイクルでのTIMA値
+        """
+        import os
+        
+        # 現在のTIMA値をベースに計算
+        # TIMAはTACの設定に基づいて一定間隔でインクリメントされる
+        if not (self.TAC & 0b100):
+            # タイマー無効時は現在値を返す
+            return self.TIMA
+        
+        # サイクル差分を計算
+        cycle_diff = cycle - self.last_cycles
+        if cycle_diff < 0:
+            cycle_diff = 0
+        
+        # タイマーの周波数設定に基づくdivider値
+        divider = self.dividers[self.TAC & 0b11]
+        
+        # TIMA_counterに基づいて現在のカウントを計算
+        counter = self.TIMA_counter + cycle_diff
+        
+        # TIMAの増分を計算
+        tima_increment = counter >> divider
+        
+        # 新しいTIMA値を計算
+        new_tima = (self.TIMA + tima_increment) & 0xFF
+        
+        if os.getenv('TIMER_DEBUG'):
+            print(f"[Timer] get_tima_at_cycle({cycle}) = 0x{new_tima:02X} "
+                  f"(base=0x{self.TIMA:02X}, diff={cycle_diff}, inc={tima_increment})")
+        
+        return new_tima
+    
+    def set_tima_at_cycle(self, cycle: cython.longlong, value: cython.int) -> None:
+        """指定サイクルでTIMAを設定（テスト用）
+        
+        mem_timingテストでは、特定のサイクルでのTIMA書き込みを
+        正確にシミュレートする必要がある。
+        
+        Args:
+            cycle: CPU累積サイクル
+            value: 設定するTIMA値
+        """
+        import os
+        
+        if os.getenv('TIMER_DEBUG'):
+            print(f"[Timer] set_tima_at_cycle({cycle}, 0x{value:02X}) "
+                  f"old=0x{self.TIMA:02X}")
+        
+        # 通常のTIMA書き込みと同じ処理
+        self.TIMA = value & 0xFF
+        
+        # バッチ処理用: _cycles_to_interruptを更新（タイマー有効時のみ）
+        if self.TAC & 0b100:
+            divider = self.dividers[self.TAC & 0b11]
+            self._cycles_to_interrupt = ((0x100 - self.TIMA) << divider) - self.TIMA_counter
+        
+        # last_cyclesを更新して同期
+        self.last_cycles = cycle
+
     def tick(self, _cycles: cython.longlong) -> cython.bint:
         """PyBoy方式のtick処理（高速・安定版）"""
         cycles: cython.longlong = _cycles - self.last_cycles

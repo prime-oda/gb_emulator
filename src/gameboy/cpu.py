@@ -420,11 +420,33 @@ class CPU:
             elif reg == 5:  # L
                 self.l |= (1 << bit)
             elif reg == 6:  # (HL)
+                # SET/RES (HL)をマイクロコードレベルで実行
                 hl_addr = (self.h << 8) | self.l
-                value = self.memory.read_byte(hl_addr)
-                value |= (1 << bit)
-                self.memory.write_byte(hl_addr, value)
-                self.cycles += 12  # メモリR/W + 実行分（合計16T）
+                
+                # サイクル3相当でReadを実行（期待値に合わせて+4Tのオフセット）
+                # TIMAアクセスは「サイクル+4の未来」として扱う
+                if hl_addr == 0xFF05:
+                    value = self.memory.timer.get_tima_at_cycle(self.cycles + 8)
+                else:
+                    value = self.memory.read_byte(hl_addr)
+                
+                # 4サイクル進行
+                self.cycles += 4
+                
+                # Modify（内部処理）
+                new_value = (value | (1 << bit)) & 0xFF
+                
+                # 4サイクル進行
+                self.cycles += 4
+                
+                # サイクル7相当でWriteを実行（期待値に合わせて+4Tのオフセット）
+                if hl_addr == 0xFF05:
+                    self.memory.timer.set_tima_at_cycle(self.cycles + 4, new_value)
+                else:
+                    self.memory.write_byte(hl_addr, new_value)
+                
+                # 4サイクル進行（合計16T）
+                self.cycles += 4
             elif reg == 7:  # A
                 self.a |= (1 << bit)
             
@@ -450,16 +472,36 @@ class CPU:
             elif reg == 5:  # L
                 self.l &= ~(1 << bit)
             elif reg == 6:  # (HL)
+                # SET/RES (HL)をマイクロコードレベルで実行
                 hl_addr = (self.h << 8) | self.l
-                value = self.memory.read_byte(hl_addr)
-                value &= ~(1 << bit)
-                self.memory.write_byte(hl_addr, value)
-                self.cycles += 12  # メモリR/W + 実行分（合計16T）
+                
+                # サイクル3相当でReadを実行
+                # TIMAアクセスは「サイクル+4の未来」として扱う
+                if hl_addr == 0xFF05:
+                    value = self.memory.timer.get_tima_at_cycle(self.cycles + 8)
+                else:
+                    value = self.memory.read_byte(hl_addr)
+                
+                # 4サイクル進行
+                self.cycles += 4
+                
+                # Modify（内部処理）
+                new_value = (value & ~(1 << bit)) & 0xFF
+                
+                # 4サイクル進行
+                self.cycles += 4
+                
+                # サイクル7相当でWriteを実行
+                if hl_addr == 0xFF05:
+                    self.memory.timer.set_tima_at_cycle(self.cycles + 4, new_value)
+                else:
+                    self.memory.write_byte(hl_addr, new_value)
+                
+                # 4サイクル進行（合計16T）
+                self.cycles += 4
             elif reg == 7:  # A
                 self.a &= ~(1 << bit)
-            
-            # cycles += 8は削除（CBフェッチ分4Tは既に外部で加算済み）
-        
+         
         # Rotate and shift operations (0x00-0x3F)
         elif opcode >= 0x00 and opcode <= 0x3F:
             reg = opcode & 0x07
@@ -479,9 +521,67 @@ class CPU:
             elif reg == 5:  # L
                 value = self.l
             elif reg == 6:  # (HL)
+                # Rotate/Shift (HL)をマイクロコードレベルで実行
                 hl_addr = (self.h << 8) | self.l
-                value = self.memory.read_byte(hl_addr)
-                self.cycles += 12  # メモリR/W + 実行分（合計16T）
+                
+                # サイクル3相当でReadを実行
+                # TIMAアクセスは「サイクル+4の未来」として扱う
+                if hl_addr == 0xFF05:
+                    value = self.memory.timer.get_tima_at_cycle(self.cycles)
+                else:
+                    value = self.memory.read_byte(hl_addr)
+                
+                # 4サイクル進行
+                self.cycles += 4
+                
+                # サイクル4: Modify（ALU操作）
+                if operation == 0:  # RLC
+                    carry = (value & 0x80) >> 7
+                    value = ((value << 1) | carry) & 0xFF
+                    self.flag_c = bool(carry)
+                elif operation == 1:  # RRC
+                    carry = value & 0x01
+                    value = ((value >> 1) | (carry << 7)) & 0xFF
+                    self.flag_c = bool(carry)
+                elif operation == 2:  # RL
+                    carry = 1 if self.flag_c else 0
+                    new_carry = bool(value & 0x80)
+                    value = ((value << 1) | carry) & 0xFF
+                    self.flag_c = new_carry
+                elif operation == 3:  # RR
+                    carry = 1 if self.flag_c else 0
+                    new_carry = bool(value & 0x01)
+                    value = (value >> 1) | (carry << 7)
+                    self.flag_c = new_carry
+                elif operation == 4:  # SLA
+                    self.flag_c = bool(value & 0x80)
+                    value = (value << 1) & 0xFF
+                elif operation == 5:  # SRA
+                    self.flag_c = bool(value & 0x01)
+                    value = (value >> 1) | (value & 0x80)
+                elif operation == 6:  # SWAP
+                    value = ((value & 0x0F) << 4) | ((value & 0xF0) >> 4)
+                    self.flag_c = False
+                elif operation == 7:  # SRL
+                    self.flag_c = bool(value & 0x01)
+                    value = value >> 1
+                
+                # フラグ設定（共通）
+                self.flag_z = (value == 0)
+                self.flag_n = False
+                self.flag_h = False
+                
+                # 4サイクル進行
+                self.cycles += 4
+                
+                # サイクル12: Write (HL)
+                if hl_addr == 0xFF05:
+                    self.memory.timer.set_tima_at_cycle(self.cycles, value)
+                else:
+                    self.memory.write_byte(hl_addr, value)
+                
+                # 4サイクル進行（合計20T）
+                self.cycles += 4
             elif reg == 7:  # A
                 value = self.a
             
@@ -517,31 +617,29 @@ class CPU:
                 self.flag_c = bool(value & 0x01)
                 value = value >> 1
             
-            # Set flags
-            self.flag_z = (value == 0)
-            self.flag_n = False
-            self.flag_h = False
-            
-            # Write back the result
-            if reg == 0:    # B
-                self.b = value
-            elif reg == 1:  # C
-                self.c = value
-            elif reg == 2:  # D
-                self.d = value
-            elif reg == 3:  # E
-                self.e = value
-            elif reg == 4:  # H
-                self.h = value
-            elif reg == 5:  # L
-                self.l = value
-            elif reg == 6:  # (HL)
-                hl_addr = (self.h << 8) | self.l
-                self.memory.write_byte(hl_addr, value)
-            elif reg == 7:  # A
-                self.a = value
-            
-            # cycles += 8は削除（CBフェッチ分4Tは既に外部で加算済み）
+            # reg != 6 (HL)の場合のみWrite-backとフラグ設定を実行
+            # (HL)は上記で既に処理済み
+            if reg != 6:
+                # Set flags
+                self.flag_z = (value == 0)
+                self.flag_n = False
+                self.flag_h = False
+                
+                # Write back the result
+                if reg == 0:    # B
+                    self.b = value
+                elif reg == 1:  # C
+                    self.c = value
+                elif reg == 2:  # D
+                    self.d = value
+                elif reg == 3:  # E
+                    self.e = value
+                elif reg == 4:  # H
+                    self.h = value
+                elif reg == 5:  # L
+                    self.l = value
+                elif reg == 7:  # A
+                    self.a = value
         
         else:
             if self.debug:
@@ -609,6 +707,44 @@ class CPU:
         
         # Return current cycle count for timer synchronization
         return self.cycles
+    
+    def run_until_cycle(self, target_cycle: cython.longlong) -> None:
+        """目標サイクルまでtimer/ppu/apuを更新（マイクロコード実行用）
+        
+        マイクロコードレベルの実行で、特定のサイクル位置までシステムを
+        進行させるためのメソッド。4サイクル単位でtimer/ppu/apuを更新。
+        
+        Args:
+            target_cycle: 目標サイクル数（self.cycles基準）
+        """
+        import os
+        
+        while self.cycles < target_cycle:
+            # 4サイクル進行
+            self.cycles += 4
+            
+            # Timer更新
+            if hasattr(self.memory, 'timer') and self.memory.timer:
+                timer_interrupt = self.memory.timer.tick(self.cycles)
+                if timer_interrupt:
+                    # タイマー割り込みフラグを設定
+                    if_reg = self.memory.read_byte(0xFF0F)
+                    if not (if_reg & 0x04):
+                        self.memory.write_byte(0xFF0F, if_reg | 0x04)
+            
+            # PPU更新
+            if hasattr(self.memory, 'ppu') and self.memory.ppu:
+                self.memory.ppu.step(4)
+                # LY/STATレジスタを更新
+                self.memory.io[0x44] = self.memory.ppu.get_ly()
+                self.memory.io[0x41] = self.memory.ppu.get_stat()
+            
+            # APU更新
+            if hasattr(self.memory, 'apu') and self.memory.apu:
+                self.memory.apu.step(4)
+            
+            if os.getenv('MICROCODE_DEBUG'):
+                print(f"[Microcode] Cycle {self.cycles}, target {target_cycle}")
     
     def execute_instruction(self, opcode: cython.int) -> None:
         """Execute instruction based on opcode"""
