@@ -1325,12 +1325,31 @@ class CPU:
             self.cycles += 4
         
         # Stack operations
-        elif opcode == 0xF5:  # PUSH AF
-            self.push_word(self.get_af())
-            self.cycles += 16
-        elif opcode == 0xF1:  # POP AF
-            self.set_af(self.pop_word())
-            self.cycles += 12
+        elif opcode == 0xF5:  # PUSH AF - マイクロコード化
+            self.cycles += 4
+            self.run_until_cycle(self.cycles)
+            self.sp = (self.sp - 1) & 0xFFFF
+            self.memory.write_byte(self.sp, self.a)
+            self.cycles += 4
+            self.run_until_cycle(self.cycles)
+            self.sp = (self.sp - 1) & 0xFFFF
+            f_reg = (self.flag_z << 7) | (self.flag_n << 6) | (self.flag_h << 5) | (self.flag_c << 4)
+            self.memory.write_byte(self.sp, f_reg)
+            self.cycles += 4
+            self.run_until_cycle(self.cycles)
+        elif opcode == 0xF1:  # POP AF - マイクロコード化
+            f_reg = self.memory.read_byte(self.sp)
+            self.sp = (self.sp + 1) & 0xFFFF
+            self.flag_z = (f_reg >> 7) & 1
+            self.flag_n = (f_reg >> 6) & 1
+            self.flag_h = (f_reg >> 5) & 1
+            self.flag_c = (f_reg >> 4) & 1
+            self.cycles += 4
+            self.run_until_cycle(self.cycles)
+            self.a = self.memory.read_byte(self.sp)
+            self.sp = (self.sp + 1) & 0xFFFF
+            self.cycles += 4
+            self.run_until_cycle(self.cycles)
         elif opcode == 0xC5:  # PUSH BC - マイクロコード化
             # フェーズ1: 内部処理 (4T)
             self.cycles += 4
@@ -1361,18 +1380,46 @@ class CPU:
             self.b = high
             self.cycles += 4
             self.run_until_cycle(self.cycles)
-        elif opcode == 0xD5:  # PUSH DE
-            self.push_word(self.get_de())
-            self.cycles += 16
-        elif opcode == 0xD1:  # POP DE
-            self.set_de(self.pop_word())
-            self.cycles += 12
-        elif opcode == 0xE5:  # PUSH HL
-            self.push_word(self.get_hl())
-            self.cycles += 16
-        elif opcode == 0xE1:  # POP HL
-            self.set_hl(self.pop_word())
-            self.cycles += 12
+        elif opcode == 0xD5:  # PUSH DE - マイクロコード化
+            self.cycles += 4
+            self.run_until_cycle(self.cycles)
+            self.sp = (self.sp - 1) & 0xFFFF
+            self.memory.write_byte(self.sp, self.d)
+            self.cycles += 4
+            self.run_until_cycle(self.cycles)
+            self.sp = (self.sp - 1) & 0xFFFF
+            self.memory.write_byte(self.sp, self.e)
+            self.cycles += 4
+            self.run_until_cycle(self.cycles)
+        elif opcode == 0xD1:  # POP DE - マイクロコード化
+            self.e = self.memory.read_byte(self.sp)
+            self.sp = (self.sp + 1) & 0xFFFF
+            self.cycles += 4
+            self.run_until_cycle(self.cycles)
+            self.d = self.memory.read_byte(self.sp)
+            self.sp = (self.sp + 1) & 0xFFFF
+            self.cycles += 4
+            self.run_until_cycle(self.cycles)
+        elif opcode == 0xE5:  # PUSH HL - マイクロコード化
+            self.cycles += 4
+            self.run_until_cycle(self.cycles)
+            self.sp = (self.sp - 1) & 0xFFFF
+            self.memory.write_byte(self.sp, self.h)
+            self.cycles += 4
+            self.run_until_cycle(self.cycles)
+            self.sp = (self.sp - 1) & 0xFFFF
+            self.memory.write_byte(self.sp, self.l)
+            self.cycles += 4
+            self.run_until_cycle(self.cycles)
+        elif opcode == 0xE1:  # POP HL - マイクロコード化
+            self.l = self.memory.read_byte(self.sp)
+            self.sp = (self.sp + 1) & 0xFFFF
+            self.cycles += 4
+            self.run_until_cycle(self.cycles)
+            self.h = self.memory.read_byte(self.sp)
+            self.sp = (self.sp + 1) & 0xFFFF
+            self.cycles += 4
+            self.run_until_cycle(self.cycles)
         
         # Additional register operations
         elif opcode == 0x1A:  # LD A, (DE)
