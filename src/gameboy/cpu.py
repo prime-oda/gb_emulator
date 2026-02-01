@@ -1331,12 +1331,36 @@ class CPU:
         elif opcode == 0xF1:  # POP AF
             self.set_af(self.pop_word())
             self.cycles += 12
-        elif opcode == 0xC5:  # PUSH BC
-            self.push_word(self.get_bc())
-            self.cycles += 16
-        elif opcode == 0xC1:  # POP BC
-            self.set_bc(self.pop_word())
-            self.cycles += 12
+        elif opcode == 0xC5:  # PUSH BC - マイクロコード化
+            # フェーズ1: 内部処理 (4T)
+            self.cycles += 4
+            self.run_until_cycle(self.cycles)
+            
+            # フェーズ2: ハイバイト書き込み (4T)
+            self.sp = (self.sp - 1) & 0xFFFF
+            self.memory.write_byte(self.sp, self.b)
+            self.cycles += 4
+            self.run_until_cycle(self.cycles)
+            
+            # フェーズ3: ローワイト書き込み (4T)
+            self.sp = (self.sp - 1) & 0xFFFF
+            self.memory.write_byte(self.sp, self.c)
+            self.cycles += 4
+            self.run_until_cycle(self.cycles)
+        elif opcode == 0xC1:  # POP BC - マイクロコード化
+            # フェーズ1: ローワイト読み取り (4T)
+            low = self.memory.read_byte(self.sp)
+            self.sp = (self.sp + 1) & 0xFFFF
+            self.c = low
+            self.cycles += 4
+            self.run_until_cycle(self.cycles)
+            
+            # フェーズ2: ハイバイト読み取り (4T)
+            high = self.memory.read_byte(self.sp)
+            self.sp = (self.sp + 1) & 0xFFFF
+            self.b = high
+            self.cycles += 4
+            self.run_until_cycle(self.cycles)
         elif opcode == 0xD5:  # PUSH DE
             self.push_word(self.get_de())
             self.cycles += 16
