@@ -423,30 +423,31 @@ class CPU:
                 # SET/RES (HL)をマイクロコードレベルで実行
                 hl_addr = (self.h << 8) | self.l
                 
-                # サイクル3相当でReadを実行（期待値に合わせて+4Tのオフセット）
-                # TIMAアクセスは「サイクル+4の未来」として扱う
-                if hl_addr == 0xFF05:
-                    value = self.memory.timer.get_tima_at_cycle(self.cycles + 8)
-                else:
-                    value = self.memory.read_byte(hl_addr)
+                # 正確なタイミング制御: 各フェーズでtimer/ppu/apuを更新
+                # CBフェッチ(4T) + 第2バイト(4T) = 8T 完了済み
                 
-                # 4サイクル進行
+                # サイクル8-11: Read (HL)
+                # この時点でtimer.tick()が呼ばれ、TIMAが更新される
+                value = self.memory.read_byte(hl_addr)
                 self.cycles += 4
                 
-                # Modify（内部処理）
+                # run_until_cycleでtimerを同期
+                self.run_until_cycle(self.cycles)
+                
+                # サイクル12-15: Modify（内部処理）
                 new_value = (value | (1 << bit)) & 0xFF
-                
-                # 4サイクル進行
                 self.cycles += 4
                 
-                # サイクル7相当でWriteを実行（期待値に合わせて+4Tのオフセット）
-                if hl_addr == 0xFF05:
-                    self.memory.timer.set_tima_at_cycle(self.cycles + 4, new_value)
-                else:
-                    self.memory.write_byte(hl_addr, new_value)
+                # run_until_cycleでtimerを同期
+                self.run_until_cycle(self.cycles)
                 
-                # 4サイクル進行（合計16T）
+                # サイクル16-19: Write (HL)
+                # この時点でtimer.tick()が呼ばれ、TIMAが更新される
+                self.memory.write_byte(hl_addr, new_value)
                 self.cycles += 4
+                
+                # run_until_cycleでtimerを同期
+                self.run_until_cycle(self.cycles)
             elif reg == 7:  # A
                 self.a |= (1 << bit)
             
@@ -524,17 +525,12 @@ class CPU:
                 # Rotate/Shift (HL)をマイクロコードレベルで実行
                 hl_addr = (self.h << 8) | self.l
                 
-                # サイクル3相当でReadを実行
-                # TIMAアクセスは「サイクル+4の未来」として扱う
-                if hl_addr == 0xFF05:
-                    value = self.memory.timer.get_tima_at_cycle(self.cycles)
-                else:
-                    value = self.memory.read_byte(hl_addr)
-                
-                # 4サイクル進行
+                # サイクル8-11: Read (HL)
+                value = self.memory.read_byte(hl_addr)
                 self.cycles += 4
+                self.run_until_cycle(self.cycles)
                 
-                # サイクル4: Modify（ALU操作）
+                # サイクル12-15: Modify（ALU操作）
                 if operation == 0:  # RLC
                     carry = (value & 0x80) >> 7
                     value = ((value << 1) | carry) & 0xFF
@@ -571,17 +567,13 @@ class CPU:
                 self.flag_n = False
                 self.flag_h = False
                 
-                # 4サイクル進行
                 self.cycles += 4
+                self.run_until_cycle(self.cycles)
                 
-                # サイクル12: Write (HL)
-                if hl_addr == 0xFF05:
-                    self.memory.timer.set_tima_at_cycle(self.cycles, value)
-                else:
-                    self.memory.write_byte(hl_addr, value)
-                
-                # 4サイクル進行（合計20T）
+                # サイクル16: Write (HL) - 即座に実行してWriteタイミングを早める
+                self.memory.write_byte(hl_addr, new_value)
                 self.cycles += 4
+                # Write後はrun_until_cycleなしで即座に完了
             elif reg == 7:  # A
                 value = self.a
             
@@ -1122,17 +1114,28 @@ class CPU:
         elif opcode == 0x2D:  # DEC L
             self.l = self.dec_8bit(self.l)
             self.cycles += 4
-        elif opcode == 0x34:  # INC (HL)
+        elif opcode == 0x34:  # INC (HL) - マイクロコード化
             hl_addr = self.get_hl()
+            # Read
             value = self.memory.read_byte(hl_addr)
+            self.cycles += 4
+            # Modify
             result = self.inc_8bit(value)
+            self.cycles += 4
+            # Write
             self.memory.write_byte(hl_addr, result)
-            self.cycles += 12
-        elif opcode == 0x35:  # DEC (HL)
-            value = self.memory.read_byte(self.get_hl())
+            self.cycles += 4
+        elif opcode == 0x35:  # DEC (HL) - マイクロコード化
+            hl_addr = self.get_hl()
+            # Read
+            value = self.memory.read_byte(hl_addr)
+            self.cycles += 4
+            # Modify
             result = self.dec_8bit(value)
-            self.memory.write_byte(self.get_hl(), result)
-            self.cycles += 12
+            self.cycles += 4
+            # Write
+            self.memory.write_byte(hl_addr, result)
+            self.cycles += 4
         elif opcode == 0x3C:  # INC A
             self.a = self.inc_8bit(self.a)
             self.cycles += 4

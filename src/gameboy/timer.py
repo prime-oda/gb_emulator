@@ -244,8 +244,7 @@ class Timer:
             divider = self.dividers[self.TAC & 0b11]
             self._cycles_to_interrupt = ((0x100 - self.TIMA) << divider) - self.TIMA_counter
         
-        # last_cyclesを更新して同期
-        self.last_cycles = cycle
+        # last_cyclesは更新しない - これにより複数アクセス時のタイミングが正しく計算される
 
     def tick(self, _cycles: cython.longlong) -> cython.bint:
         """PyBoy方式のtick処理（高速・安定版）"""
