@@ -556,39 +556,62 @@ class CPU:
             elif reg == 7:  # A
                 value = self.a
             
-            # Perform the operation
-            if operation == 0:  # RLC - Rotate left circular
-                carry = (value & 0x80) >> 7
-                value = ((value << 1) | carry) & 0xFF
-                self.flag_c = bool(carry)
-            elif operation == 1:  # RRC - Rotate right circular
-                carry = value & 0x01
-                value = ((value >> 1) | (carry << 7)) & 0xFF
-                self.flag_c = bool(carry)
-            elif operation == 2:  # RL - Rotate left through carry
-                carry = 1 if self.flag_c else 0
-                new_carry = bool(value & 0x80)
-                value = ((value << 1) | carry) & 0xFF
-                self.flag_c = new_carry
-            elif operation == 3:  # RR - Rotate right through carry
-                carry = 1 if self.flag_c else 0
-                new_carry = bool(value & 0x01)
-                value = (value >> 1) | (carry << 7)
-                self.flag_c = new_carry
-            elif operation == 4:  # SLA - Shift left arithmetic
-                self.flag_c = bool(value & 0x80)
-                value = (value << 1) & 0xFF
-            elif operation == 5:  # SRA - Shift right arithmetic
-                self.flag_c = bool(value & 0x01)
-                value = (value >> 1) | (value & 0x80)  # Keep MSB
-            elif operation == 6:  # SWAP - Swap nibbles
-                value = ((value & 0x0F) << 4) | ((value & 0xF0) >> 4)
-                self.flag_c = False
-            elif operation == 7:  # SRL - Shift right logical
-                self.flag_c = bool(value & 0x01)
-                value = value >> 1
+            # reg == 6 (HL) は上で既に完全に処理済みなのでスキップ
+            if reg != 6:
+                # Perform the operation
+                if operation == 0:  # RLC - Rotate left circular
+                    carry = (value & 0x80) >> 7
+                    value = ((value << 1) | carry) & 0xFF
+                    self.flag_c = bool(carry)
+                elif operation == 1:  # RRC - Rotate right circular
+                    carry = value & 0x01
+                    value = ((value >> 1) | (carry << 7)) & 0xFF
+                    self.flag_c = bool(carry)
+                elif operation == 2:  # RL - Rotate left through carry
+                    carry = 1 if self.flag_c else 0
+                    new_carry = bool(value & 0x80)
+                    value = ((value << 1) | carry) & 0xFF
+                    self.flag_c = new_carry
+                elif operation == 3:  # RR - Rotate right through carry
+                    carry = 1 if self.flag_c else 0
+                    new_carry = bool(value & 0x01)
+                    value = (value >> 1) | (carry << 7)
+                    self.flag_c = new_carry
+                elif operation == 4:  # SLA - Shift left arithmetic
+                    self.flag_c = bool(value & 0x80)
+                    value = (value << 1) & 0xFF
+                elif operation == 5:  # SRA - Shift right arithmetic
+                    self.flag_c = bool(value & 0x01)
+                    value = (value >> 1) | (value & 0x80)  # Keep MSB
+                elif operation == 6:  # SWAP - Swap nibbles
+                    value = ((value & 0x0F) << 4) | ((value & 0xF0) >> 4)
+                    self.flag_c = False
+                elif operation == 7:  # SRL - Shift right logical
+                    self.flag_c = bool(value & 0x01)
+                    value = value >> 1
+                
+                # Set flags
+                self.flag_z = (value == 0)
+                self.flag_n = False
+                self.flag_h = False
+                
+                # Write back the result (reg 0-5, 7)
+                if reg == 0:    # B
+                    self.b = value
+                elif reg == 1:  # C
+                    self.c = value
+                elif reg == 2:  # D
+                    self.d = value
+                elif reg == 3:  # E
+                    self.e = value
+                elif reg == 4:  # H
+                    self.h = value
+                elif reg == 5:  # L
+                    self.l = value
+                elif reg == 7:  # A
+                    self.a = value
             
-            # reg != 6 (HL)の場合のみWrite-backとフラグ設定を実行
+            # reg == 6 (HL) は上で既に処理済み
             # (HL)は上記で既に処理済み
             if reg != 6:
                 # Set flags
