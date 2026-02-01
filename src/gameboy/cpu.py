@@ -726,8 +726,11 @@ class CPU:
             self._pc_history.pop(0)
             self._pc_history.append(self.pc - 1)
             
-        if opcode == 0x00:  # NOP
+        if opcode == 0x00:  # NOP - マイクロコード化
+            # NOPは4T命令: フェッチ4T(済) + 実行0T
+            # サイクルを進行してtimer/ppu/apuを更新
             self.cycles += 4
+            self.run_until_cycle(self.cycles)
         
         # 16-bit loads
         elif opcode == 0x01:  # LD BC, nn
@@ -866,50 +869,81 @@ class CPU:
             self.cycles += 4
         
         # Load from memory to register
-        elif opcode == 0x46:  # LD B, (HL)
+        elif opcode == 0x46:  # LD B, (HL) - マイクロコード化
             self.b = self.memory.read_byte(self.get_hl())
-            self.cycles += 8
-        elif opcode == 0x4E:  # LD C, (HL)
+            self.cycles += 4
+            self.run_until_cycle(self.cycles)
+            self.cycles += 4
+        elif opcode == 0x4E:  # LD C, (HL) - マイクロコード化
             self.c = self.memory.read_byte(self.get_hl())
-            self.cycles += 8
-        elif opcode == 0x56:  # LD D, (HL)
+            self.cycles += 4
+            self.run_until_cycle(self.cycles)
+            self.cycles += 4
+        elif opcode == 0x56:  # LD D, (HL) - マイクロコード化
             self.d = self.memory.read_byte(self.get_hl())
-            self.cycles += 8
-        elif opcode == 0x5E:  # LD E, (HL)
+            self.cycles += 4
+            self.run_until_cycle(self.cycles)
+            self.cycles += 4
+        elif opcode == 0x5E:  # LD E, (HL) - マイクロコード化
             self.e = self.memory.read_byte(self.get_hl())
-            self.cycles += 8
-        elif opcode == 0x66:  # LD H, (HL)
+            self.cycles += 4
+            self.run_until_cycle(self.cycles)
+            self.cycles += 4
+        elif opcode == 0x66:  # LD H, (HL) - マイクロコード化
             self.h = self.memory.read_byte(self.get_hl())
-            self.cycles += 8
-        elif opcode == 0x6E:  # LD L, (HL)
+            self.cycles += 4
+            self.run_until_cycle(self.cycles)
+            self.cycles += 4
+        elif opcode == 0x6E:  # LD L, (HL) - マイクロコード化
             self.l = self.memory.read_byte(self.get_hl())
-            self.cycles += 8
-        elif opcode == 0x7E:  # LD A, (HL)
+            self.cycles += 4
+            self.run_until_cycle(self.cycles)
+            self.cycles += 4
+        elif opcode == 0x7E:  # LD A, (HL) - マイクロコード化
+            # 8T命令: フェッチ4T(済) + メモリRead 4T
+            # Readフェーズ
             self.a = self.memory.read_byte(self.get_hl())
-            self.cycles += 8
+            self.cycles += 4
+            self.run_until_cycle(self.cycles)
+            # 残り4T
+            self.cycles += 4
         
         # Load from register to memory
-        elif opcode == 0x70:  # LD (HL), B
+        elif opcode == 0x70:  # LD (HL), B - マイクロコード化
             self.memory.write_byte(self.get_hl(), self.b)
-            self.cycles += 8
-        elif opcode == 0x71:  # LD (HL), C
+            self.cycles += 4
+            self.run_until_cycle(self.cycles)
+            self.cycles += 4
+        elif opcode == 0x71:  # LD (HL), C - マイクロコード化
             self.memory.write_byte(self.get_hl(), self.c)
-            self.cycles += 8
-        elif opcode == 0x72:  # LD (HL), D
+            self.cycles += 4
+            self.run_until_cycle(self.cycles)
+            self.cycles += 4
+        elif opcode == 0x72:  # LD (HL), D - マイクロコード化
             self.memory.write_byte(self.get_hl(), self.d)
-            self.cycles += 8
-        elif opcode == 0x73:  # LD (HL), E
+            self.cycles += 4
+            self.run_until_cycle(self.cycles)
+            self.cycles += 4
+        elif opcode == 0x73:  # LD (HL), E - マイクロコード化
             self.memory.write_byte(self.get_hl(), self.e)
-            self.cycles += 8
-        elif opcode == 0x74:  # LD (HL), H
+            self.cycles += 4
+            self.run_until_cycle(self.cycles)
+            self.cycles += 4
+        elif opcode == 0x74:  # LD (HL), H - マイクロコード化
             self.memory.write_byte(self.get_hl(), self.h)
-            self.cycles += 8
-        elif opcode == 0x75:  # LD (HL), L
+            self.cycles += 4
+            self.run_until_cycle(self.cycles)
+            self.cycles += 4
+        elif opcode == 0x75:  # LD (HL), L - マイクロコード化
             self.memory.write_byte(self.get_hl(), self.l)
-            self.cycles += 8
-        elif opcode == 0x77:  # LD (HL), A
+            self.cycles += 4
+            self.run_until_cycle(self.cycles)
+            self.cycles += 4
+        elif opcode == 0x77:  # LD (HL), A - マイクロコード化
             self.memory.write_byte(self.get_hl(), self.a)
-            self.cycles += 8
+            self.cycles += 4
+            self.run_until_cycle(self.cycles)
+            self.cycles += 4
         
         # Jump and branch instructions
         elif opcode == 0x18:  # JR n - Relative jump
