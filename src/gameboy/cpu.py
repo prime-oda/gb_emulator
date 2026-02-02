@@ -144,6 +144,208 @@ class CPU:
         
         # Game Boy HALT bug support
         self.halt_bug_active = False
+        
+        # Jump table for O(1) instruction dispatch
+        self._init_opcode_table()
+
+    def _init_opcode_table(self):
+        """Initialize jump table for fast instruction dispatch"""
+        # Create list of 256 opcode handlers
+        self.opcode_table = [self._op_unimplemented] * 256
+        
+        # Register frequently used opcodes
+        self.opcode_table[0x00] = self._op_nop
+        self.opcode_table[0x01] = self._op_ld_bc_nn
+        self.opcode_table[0x11] = self._op_ld_de_nn
+        self.opcode_table[0x21] = self._op_ld_hl_nn
+        self.opcode_table[0x31] = self._op_ld_sp_nn
+        
+        # 8-bit LD immediate
+        self.opcode_table[0x06] = self._op_ld_b_n
+        self.opcode_table[0x0E] = self._op_ld_c_n
+        self.opcode_table[0x16] = self._op_ld_d_n
+        self.opcode_table[0x1E] = self._op_ld_e_n
+        self.opcode_table[0x26] = self._op_ld_h_n
+        self.opcode_table[0x2E] = self._op_ld_l_n
+        self.opcode_table[0x3E] = self._op_ld_a_n
+        
+        # Memory operations
+        self.opcode_table[0x22] = self._op_ld_hl_plus_a
+        self.opcode_table[0x32] = self._op_ld_hl_minus_a
+        self.opcode_table[0x2A] = self._op_ld_a_hl_plus
+        self.opcode_table[0x3A] = self._op_ld_a_hl_minus
+        
+        # INC/DEC (HL)
+        self.opcode_table[0x34] = self._op_inc_hl
+        self.opcode_table[0x35] = self._op_dec_hl
+        
+        # LD (HL), A and LD A, (HL)
+        self.opcode_table[0x77] = self._op_ld_hl_a
+        self.opcode_table[0x7E] = self._op_ld_a_hl
+        
+        # Jump instructions
+        self.opcode_table[0x18] = self._op_jr_n
+        self.opcode_table[0xC3] = self._op_jp_nn
+        
+        # Call and Return
+        self.opcode_table[0xCD] = self._op_call_nn
+        self.opcode_table[0xC9] = self._op_ret
+        
+    def _op_unimplemented(self):
+        """Handler for unimplemented opcodes"""
+        if self.debug:
+            print(f"Unimplemented opcode at PC: 0x{self.pc-1:04X}")
+        self.cycles += 4
+        
+    def _op_nop(self):
+        """NOP - No operation (0x00)"""
+        self.cycles += 4
+        
+    def _op_ld_bc_nn(self):
+        """LD BC, nn - Load 16-bit immediate into BC (0x01)"""
+        self.set_bc(self.fetch_word())
+        self.cycles += 12
+        
+    def _op_ld_de_nn(self):
+        """LD DE, nn - Load 16-bit immediate into DE (0x11)"""
+        self.set_de(self.fetch_word())
+        self.cycles += 12
+        
+    def _op_ld_hl_nn(self):
+        """LD HL, nn - Load 16-bit immediate into HL (0x21)"""
+        self.set_hl(self.fetch_word())
+        self.cycles += 12
+        
+    def _op_ld_sp_nn(self):
+        """LD SP, nn - Load 16-bit immediate into SP (0x31)"""
+        self.sp = self.fetch_word()
+        self.cycles += 12
+        
+    def _op_ld_b_n(self):
+        """LD B, n - Load immediate into B (0x06)"""
+        self.b = self.fetch_byte()
+        self.cycles += 8
+        
+    def _op_ld_c_n(self):
+        """LD C, n - Load immediate into C (0x0E)"""
+        self.c = self.fetch_byte()
+        self.cycles += 8
+        
+    def _op_ld_d_n(self):
+        """LD D, n - Load immediate into D (0x16)"""
+        self.d = self.fetch_byte()
+        self.cycles += 8
+        
+    def _op_ld_e_n(self):
+        """LD E, n - Load immediate into E (0x1E)"""
+        self.e = self.fetch_byte()
+        self.cycles += 8
+        
+    def _op_ld_h_n(self):
+        """LD H, n - Load immediate into H (0x26)"""
+        self.h = self.fetch_byte()
+        self.cycles += 8
+        
+    def _op_ld_l_n(self):
+        """LD L, n - Load immediate into L (0x2E)"""
+        self.l = self.fetch_byte()
+        self.cycles += 8
+        
+    def _op_ld_a_n(self):
+        """LD A, n - Load immediate into A (0x3E)"""
+        self.a = self.fetch_byte()
+        self.cycles += 8
+        
+    def _op_ld_hl_plus_a(self):
+        """LD (HL+), A - Store A to (HL), increment HL (0x22)"""
+        hl_addr = self.get_hl()
+        self.memory.write_byte(hl_addr, self.a)
+        self.set_hl((hl_addr + 1) & 0xFFFF)
+        self.cycles += 8
+        
+    def _op_ld_hl_minus_a(self):
+        """LD (HL-), A - Store A to (HL), decrement HL (0x32)"""
+        hl_addr = self.get_hl()
+        self.memory.write_byte(hl_addr, self.a)
+        self.set_hl((hl_addr - 1) & 0xFFFF)
+        self.cycles += 8
+        
+    def _op_ld_a_hl_plus(self):
+        """LD A, (HL+) - Load from (HL) to A, increment HL (0x2A)"""
+        hl_addr = self.get_hl()
+        self.a = self.memory.read_byte(hl_addr)
+        self.set_hl((hl_addr + 1) & 0xFFFF)
+        self.cycles += 8
+        
+    def _op_ld_a_hl_minus(self):
+        """LD A, (HL-) - Load from (HL) to A, decrement HL (0x3A)"""
+        hl_addr = self.get_hl()
+        self.a = self.memory.read_byte(hl_addr)
+        self.set_hl((hl_addr - 1) & 0xFFFF)
+        self.cycles += 8
+        
+    def _op_inc_hl(self):
+        """INC (HL) - Increment value at (HL) (0x34)"""
+        hl_addr = self.get_hl()
+        value = self.memory.read_byte(hl_addr)
+        result = self.inc_8bit(value)
+        self.cycles += 4
+        self.memory.write_byte(hl_addr, result)
+        self.cycles += 8
+        
+    def _op_dec_hl(self):
+        """DEC (HL) - Decrement value at (HL) (0x35)"""
+        hl_addr = self.get_hl()
+        value = self.memory.read_byte(hl_addr)
+        result = self.dec_8bit(value)
+        self.cycles += 4
+        self.memory.write_byte(hl_addr, result)
+        self.cycles += 8
+        
+    def _op_ld_hl_a(self):
+        """LD (HL), A - Store A to (HL) (0x77)"""
+        self.memory.write_byte(self.get_hl(), self.a)
+        self.cycles += 8
+        
+    def _op_ld_a_hl(self):
+        """LD A, (HL) - Load from (HL) to A (0x7E)"""
+        self.a = self.memory.read_byte(self.get_hl())
+        self.cycles += 8
+        
+    def _op_jr_n(self):
+        """JR n - Relative jump (0x18)"""
+        offset = self.fetch_byte()
+        if offset > 127:
+            offset = offset - 256
+        self.pc = (self.pc + offset) & 0xFFFF
+        self.cycles += 12
+        
+    def _op_jp_nn(self):
+        """JP nn - Jump to absolute address (0xC3)"""
+        low = self.fetch_byte()
+        high = self.fetch_byte()
+        self.pc = (high << 8) | low
+        self.cycles += 16
+        
+    def _op_call_nn(self):
+        """CALL nn - Call subroutine (0xCD)"""
+        low = self.fetch_byte()
+        high = self.fetch_byte()
+        self.sp = (self.sp - 1) & 0xFFFF
+        self.memory.write_byte(self.sp, (self.pc >> 8) & 0xFF)
+        self.sp = (self.sp - 1) & 0xFFFF
+        self.memory.write_byte(self.sp, self.pc & 0xFF)
+        self.pc = (high << 8) | low
+        self.cycles += 24
+        
+    def _op_ret(self):
+        """RET - Return from subroutine (0xC9)"""
+        low = self.memory.read_byte(self.sp)
+        self.sp = (self.sp + 1) & 0xFFFF
+        high = self.memory.read_byte(self.sp)
+        self.sp = (self.sp + 1) & 0xFFFF
+        self.pc = (high << 8) | low
+        self.cycles += 16
 
     def init_for_boot_rom(self):
         """Initialize CPU state for boot ROM execution"""
@@ -746,20 +948,23 @@ class CPU:
             self._pc_history.pop(0)
             self._pc_history.append(self.pc - 1)
             
-        if opcode == 0x00:  # NOP - PyBoy方式
+        # Use jump table for O(1) dispatch of registered opcodes
+        if self.opcode_table[opcode] != self._op_unimplemented:
+            self.opcode_table[opcode]()
+        elif opcode == 0x00:  # NOP - PyBoy方式 (fallback)
             self.cycles += 4
         
         # 16-bit loads
-        elif opcode == 0x01:  # LD BC, nn
+        elif opcode == 0x01:  # LD BC, nn (fallback)
             self.set_bc(self.fetch_word())
             self.cycles += 12
-        elif opcode == 0x11:  # LD DE, nn
+        elif opcode == 0x11:  # LD DE, nn (fallback)
             self.set_de(self.fetch_word())
             self.cycles += 12
-        elif opcode == 0x21:  # LD HL, nn
+        elif opcode == 0x21:  # LD HL, nn (fallback)
             self.set_hl(self.fetch_word())
             self.cycles += 12
-        elif opcode == 0x31:  # LD SP, nn
+        elif opcode == 0x31:  # LD SP, nn (fallback)
             self.sp = self.fetch_word()
             self.cycles += 12
         
