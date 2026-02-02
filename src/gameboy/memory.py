@@ -92,7 +92,7 @@ class Memory:
         
         self.io[0x24] = 0x77  # NR50
         self.io[0x25] = 0xF3  # NR51
-        self.io[0x26] = 0xF1  # NR52
+        self.io[0x26] = 0x80  # NR52 - Sound on (boot ROM final state)
         
         # LCD/PPU
         self.io[0x40] = 0x91  # LCDC

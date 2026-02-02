@@ -213,8 +213,10 @@ class APU:
     
     def write_register(self, address, value):
         """Write to APU register"""
-        # Removed debug output for performance
-            
+        import os
+        if os.getenv('APU_DEBUG'):
+            print(f"[APU] Write 0x{address:04X} = 0x{value:02X}")
+             
         if address == 0xFF24:  # NR50 - Channel control / ON-OFF / Volume
             self.left_volume = (value >> 4) & 0x07
             self.right_volume = value & 0x07
@@ -262,37 +264,49 @@ class APU:
     
     def read_register(self, address):
         """Read from APU register"""
+        import os
+        result = 0xFF
+        
         if address == 0xFF24:  # NR50
-            return (self.left_volume << 4) | self.right_volume
+            result = (self.left_volume << 4) | self.right_volume
             
         elif address == 0xFF25:  # NR51
-            return (self.left_enables << 4) | self.right_enables
+            result = (self.left_enables << 4) | self.right_enables
             
-        elif address == 0xFF26:  # NR52
-            status = 0x80 if self.enabled else 0x00
+        elif address == 0xFF26:  # NR52 - PyBoy準拠: 0x70 | power | enables
+            result = 0x70  # bit 6-4 are always 1
+            if self.enabled:
+                result |= 0x80
             if self.channel1.enabled:
-                status |= 0x01
+                result |= 0x01
             if self.channel2.enabled:
-                status |= 0x02
+                result |= 0x02
             if self.channel3.enabled:
-                status |= 0x04
+                result |= 0x04
             if self.channel4.enabled:
-                status |= 0x08
-            return status
+                result |= 0x08
             
         # Channel registers
         elif 0xFF10 <= address <= 0xFF14:
-            return self.channel1.read_register(address)
+            result = self.channel1.read_register(address)
         elif 0xFF16 <= address <= 0xFF19:
-            return self.channel2.read_register(address)
+            result = self.channel2.read_register(address)
         elif 0xFF1A <= address <= 0xFF1E:
-            return self.channel3.read_register(address)
+            result = self.channel3.read_register(address)
         elif 0xFF20 <= address <= 0xFF23:
-            return self.channel4.read_register(address)
+            result = self.channel4.read_register(address)
         elif 0xFF30 <= address <= 0xFF3F:
-            return self.channel3.read_wave_ram(address - 0xFF30)
+            # DMG: Return 0xFF if channel is enabled (PyBoy compatible)
+            if self.channel3.enabled:
+                result = 0xFF
+            else:
+                result = self.channel3.read_wave_ram(address - 0xFF30)
+        
+        # デバッグ出力
+        if os.getenv('APU_DEBUG'):
+            print(f"[APU] Read 0x{address:04X} = 0x{result:02X}")
             
-        return 0xFF
+        return result
 
 
 class SquareChannel:
@@ -438,8 +452,26 @@ class SquareChannel:
                 self.phase = 0
     
     def read_register(self, address):
-        """Read from channel register"""
-        # Most registers are write-only, return 0xFF
+        """Read from channel register - Game Boy準拠の読み戻し値"""
+        offset = address - (0xFF10 if self.channel_num == 1 else 0xFF16)
+        
+        if offset == 0:  # NR10 (Channel 1 only) - Bit 7のみ読み戻し可能
+            if self.sweep_enabled:
+                return (self.sweep_period << 4) | (self.sweep_direction << 3) | self.sweep_shift | 0x80
+            return 0xFF  # Channel 2ではNR10は存在しない
+            
+        elif offset == 1:  # NR11/NR21 - Bit 7-6のみ読み戻し可能（デューティサイクル）
+            return (self.duty_cycle << 6) | 0x3F  # 下位6ビットは常に1
+            
+        elif offset == 2:  # NR12/NR22 - 全ビット読み戻し可能
+            return (self.envelope_volume << 4) | (self.envelope_direction << 3) | self.envelope_period
+            
+        elif offset == 3:  # NR13/NR23 - 書き込みのみ
+            return 0xFF
+            
+        elif offset == 4:  # NR14/NR24 - Bit 6のみ読み戻し可能（length enable）
+            return (self.length_enabled << 6) | 0xBF  # その他のビットは1
+            
         return 0xFF
 
 
@@ -548,7 +580,24 @@ class WaveChannel:
                 self.phase = 0
     
     def read_register(self, address):
-        """Read from channel register"""
+        """Read from channel register - Game Boy準拠"""
+        offset = address - 0xFF1A
+        
+        if offset == 0:  # NR30 - Bit 7のみ読み戻し可能（DAC enable）
+            return (self.dac_enabled << 7) | 0x7F
+            
+        elif offset == 1:  # NR31 - 書き込みのみ
+            return 0xFF
+            
+        elif offset == 2:  # NR32 - Bit 6-5のみ読み戻し可能（音量）
+            return (self.volume_level << 5) | 0x9F
+            
+        elif offset == 3:  # NR33 - 書き込みのみ
+            return 0xFF
+            
+        elif offset == 4:  # NR34 - Bit 6のみ読み戻し可能（length enable）
+            return (self.length_enabled << 6) | 0xBF
+            
         return 0xFF
     
     def write_wave_ram(self, offset, value):
@@ -690,5 +739,19 @@ class NoiseChannel:
                 self.noise_counter = 0
     
     def read_register(self, address):
-        """Read from channel register"""
+        """Read from channel register - Game Boy準拠"""
+        offset = address - 0xFF20
+        
+        if offset == 1:  # NR41 - 書き込みのみ（実際には存在しないが読み戻し0xFF）
+            return 0xFF
+            
+        elif offset == 2:  # NR42 - 全ビット読み戻し可能（エンベロープ）
+            return (self.envelope_volume << 4) | (self.envelope_direction << 3) | self.envelope_period
+            
+        elif offset == 3:  # NR43 - 全ビット読み戻し可能（周波数/カウンタ）
+            return (self.clock_divider << 4) | (self.counter_step << 3) | self.dividing_ratio
+            
+        elif offset == 4:  # NR44 - Bit 6のみ読み戻し可能（length enable）
+            return (self.length_enabled << 6) | 0xBF
+            
         return 0xFF

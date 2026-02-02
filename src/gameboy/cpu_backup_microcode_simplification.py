@@ -746,8 +746,11 @@ class CPU:
             self._pc_history.pop(0)
             self._pc_history.append(self.pc - 1)
             
-        if opcode == 0x00:  # NOP - PyBoy方式
+        if opcode == 0x00:  # NOP - マイクロコード化
+            # NOPは4T命令: フェッチ4T(済) + 実行0T
+            # サイクルを進行してtimer/ppu/apuを更新
             self.cycles += 4
+            self.run_until_cycle(self.cycles)
         
         # 16-bit loads
         elif opcode == 0x01:  # LD BC, nn
@@ -886,50 +889,81 @@ class CPU:
             self.cycles += 4
         
         # Load from memory to register
-        elif opcode == 0x46:  # LD B, (HL) - PyBoy方式
+        elif opcode == 0x46:  # LD B, (HL) - マイクロコード化
             self.b = self.memory.read_byte(self.get_hl())
-            self.cycles += 8
-        elif opcode == 0x4E:  # LD C, (HL) - PyBoy方式
+            self.cycles += 4
+            self.run_until_cycle(self.cycles)
+            self.cycles += 4
+        elif opcode == 0x4E:  # LD C, (HL) - マイクロコード化
             self.c = self.memory.read_byte(self.get_hl())
-            self.cycles += 8
-        elif opcode == 0x56:  # LD D, (HL) - PyBoy方式
+            self.cycles += 4
+            self.run_until_cycle(self.cycles)
+            self.cycles += 4
+        elif opcode == 0x56:  # LD D, (HL) - マイクロコード化
             self.d = self.memory.read_byte(self.get_hl())
-            self.cycles += 8
-        elif opcode == 0x5E:  # LD E, (HL) - PyBoy方式
+            self.cycles += 4
+            self.run_until_cycle(self.cycles)
+            self.cycles += 4
+        elif opcode == 0x5E:  # LD E, (HL) - マイクロコード化
             self.e = self.memory.read_byte(self.get_hl())
-            self.cycles += 8
-        elif opcode == 0x66:  # LD H, (HL) - PyBoy方式
+            self.cycles += 4
+            self.run_until_cycle(self.cycles)
+            self.cycles += 4
+        elif opcode == 0x66:  # LD H, (HL) - マイクロコード化
             self.h = self.memory.read_byte(self.get_hl())
-            self.cycles += 8
-        elif opcode == 0x6E:  # LD L, (HL) - PyBoy方式
+            self.cycles += 4
+            self.run_until_cycle(self.cycles)
+            self.cycles += 4
+        elif opcode == 0x6E:  # LD L, (HL) - マイクロコード化
             self.l = self.memory.read_byte(self.get_hl())
-            self.cycles += 8
-        elif opcode == 0x7E:  # LD A, (HL) - PyBoy方式
+            self.cycles += 4
+            self.run_until_cycle(self.cycles)
+            self.cycles += 4
+        elif opcode == 0x7E:  # LD A, (HL) - マイクロコード化
+            # 8T命令: フェッチ4T(済) + メモリRead 4T
+            # Readフェーズ
             self.a = self.memory.read_byte(self.get_hl())
-            self.cycles += 8
+            self.cycles += 4
+            self.run_until_cycle(self.cycles)
+            # 残り4T
+            self.cycles += 4
         
         # Load from register to memory
-        elif opcode == 0x70:  # LD (HL), B - PyBoy方式
+        elif opcode == 0x70:  # LD (HL), B - マイクロコード化
             self.memory.write_byte(self.get_hl(), self.b)
-            self.cycles += 8
-        elif opcode == 0x71:  # LD (HL), C - PyBoy方式
+            self.cycles += 4
+            self.run_until_cycle(self.cycles)
+            self.cycles += 4
+        elif opcode == 0x71:  # LD (HL), C - マイクロコード化
             self.memory.write_byte(self.get_hl(), self.c)
-            self.cycles += 8
-        elif opcode == 0x72:  # LD (HL), D - PyBoy方式
+            self.cycles += 4
+            self.run_until_cycle(self.cycles)
+            self.cycles += 4
+        elif opcode == 0x72:  # LD (HL), D - マイクロコード化
             self.memory.write_byte(self.get_hl(), self.d)
-            self.cycles += 8
-        elif opcode == 0x73:  # LD (HL), E - PyBoy方式
+            self.cycles += 4
+            self.run_until_cycle(self.cycles)
+            self.cycles += 4
+        elif opcode == 0x73:  # LD (HL), E - マイクロコード化
             self.memory.write_byte(self.get_hl(), self.e)
-            self.cycles += 8
-        elif opcode == 0x74:  # LD (HL), H - PyBoy方式
+            self.cycles += 4
+            self.run_until_cycle(self.cycles)
+            self.cycles += 4
+        elif opcode == 0x74:  # LD (HL), H - マイクロコード化
             self.memory.write_byte(self.get_hl(), self.h)
-            self.cycles += 8
-        elif opcode == 0x75:  # LD (HL), L - PyBoy方式
+            self.cycles += 4
+            self.run_until_cycle(self.cycles)
+            self.cycles += 4
+        elif opcode == 0x75:  # LD (HL), L - マイクロコード化
             self.memory.write_byte(self.get_hl(), self.l)
-            self.cycles += 8
-        elif opcode == 0x77:  # LD (HL), A - PyBoy方式
+            self.cycles += 4
+            self.run_until_cycle(self.cycles)
+            self.cycles += 4
+        elif opcode == 0x77:  # LD (HL), A - マイクロコード化
             self.memory.write_byte(self.get_hl(), self.a)
-            self.cycles += 8
+            self.cycles += 4
+            self.run_until_cycle(self.cycles)
+            self.cycles += 4
         
         # Jump and branch instructions
         elif opcode == 0x18:  # JR n - Relative jump
@@ -1023,15 +1057,34 @@ class CPU:
             self.cycles += 4
         
         # Call and return instructions
-        elif opcode == 0xCD:  # CALL nn - PyBoy方式: サイクル一括加算
+        elif opcode == 0xCD:  # CALL nn - 完全マイクロコード化
+            # フェーズ1: オペランドローワイトフェッチ (4T)
             low = self.fetch_byte()
+            self.cycles += 4
+            self.run_until_cycle(self.cycles)
+            
+            # フェーズ2: オペランドハイバイトフェッチ (4T)
             high = self.fetch_byte()
+            self.cycles += 4
+            self.run_until_cycle(self.cycles)
+            
+            # フェーズ3: リターンアドレスPUSH（ハイ）(4T)
             self.sp = (self.sp - 1) & 0xFFFF
             self.memory.write_byte(self.sp, (self.pc >> 8) & 0xFF)
+            self.cycles += 4
+            self.run_until_cycle(self.cycles)
+            
+            # フェーズ4: リターンアドレスPUSH（ロー）(4T)
             self.sp = (self.sp - 1) & 0xFFFF
             self.memory.write_byte(self.sp, self.pc & 0xFF)
-            self.pc = (high << 8) | low
-            self.cycles += 24
+            self.cycles += 4
+            self.run_until_cycle(self.cycles)
+            
+            # フェーズ5: PC更新 (4T)
+            address = (high << 8) | low
+            self.pc = address
+            self.cycles += 4
+            self.run_until_cycle(self.cycles)
         elif opcode == 0xC4:  # CALL NZ, nn
             address = self.fetch_word()
             if not self.flag_z:
@@ -1064,13 +1117,26 @@ class CPU:
                 self.cycles += 24
             else:
                 self.cycles += 12
-        elif opcode == 0xC9:  # RET - PyBoy方式: サイクル一括加算
+        elif opcode == 0xC9:  # RET - 完全マイクロコード化
+            # フェーズ1: リターンアドレスPOP（ロー）(4T)
             low = self.memory.read_byte(self.sp)
             self.sp = (self.sp + 1) & 0xFFFF
+            self.cycles += 4
+            self.run_until_cycle(self.cycles)
+            
+            # フェーズ2: リターンアドレスPOP（ハイ）(4T)
             high = self.memory.read_byte(self.sp)
             self.sp = (self.sp + 1) & 0xFFFF
+            self.cycles += 4
+            self.run_until_cycle(self.cycles)
+            
+            # フェーズ3: PC更新 (4T)
             self.pc = (high << 8) | low
-            self.cycles += 16
+            self.cycles += 4
+            self.run_until_cycle(self.cycles)
+            
+            # フェーズ4: 内部処理 (4T)
+            self.cycles += 4
         elif opcode == 0xC0:  # RET NZ
             if not self.flag_z:
                 self.pc = self.pop_word()
@@ -1145,26 +1211,28 @@ class CPU:
             self.l = self.dec_8bit(self.l)
             self.cycles += 4
             self.run_until_cycle(self.cycles)
-        elif opcode == 0x34:  # INC (HL) - PyBoy方式: Read → cycles += 4 → Write → cycles += 8
+        elif opcode == 0x34:  # INC (HL) - マイクロコード化
             hl_addr = self.get_hl()
             # Read
             value = self.memory.read_byte(hl_addr)
+            self.cycles += 4
+            # Modify
             result = self.inc_8bit(value)
-            # PyBoy方式: Write前にサイクル加算
             self.cycles += 4
             # Write
             self.memory.write_byte(hl_addr, result)
-            self.cycles += 8
-        elif opcode == 0x35:  # DEC (HL) - PyBoy方式: Read → cycles += 4 → Write → cycles += 8
+            self.cycles += 4
+        elif opcode == 0x35:  # DEC (HL) - マイクロコード化
             hl_addr = self.get_hl()
             # Read
             value = self.memory.read_byte(hl_addr)
+            self.cycles += 4
+            # Modify
             result = self.dec_8bit(value)
-            # PyBoy方式: Write前にサイクル加算
             self.cycles += 4
             # Write
             self.memory.write_byte(hl_addr, result)
-            self.cycles += 8
+            self.cycles += 4
         elif opcode == 0x3C:  # INC A - マイクロコード化
             self.a = self.inc_8bit(self.a)
             self.cycles += 4
