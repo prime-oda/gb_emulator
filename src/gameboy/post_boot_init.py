@@ -1,4 +1,13 @@
-import cython
+try:
+    import cython
+except ImportError:
+    class cython:
+        @staticmethod
+        def declare(*args, **kwargs):
+            pass
+        int = int
+        longlong = int
+        bint = bool
 
 def init_post_boot_dmg(cpu, memory, timer, apu, ppu):
     """

@@ -13,6 +13,9 @@ except ImportError:
         @staticmethod
         def declare(*args, **kwargs):
             pass
+        int = int
+        longlong = int
+        bint = bool
 
 # PyBoy互換のMAX_CYCLES定義
 MAX_CYCLES: cython.longlong = 0x7FFFFFFFFFFFFFFF  # 最大サイクル数
