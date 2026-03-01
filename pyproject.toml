@@ -18,6 +18,11 @@ build = [
     "cython>=3.0.0",
     "setuptools>=68.0.0",
 ]
+mcp = [
+    "mcp[cli]>=1.0.0",
+    "Pillow>=10.0.0",
+    "ollama>=0.4.0",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
