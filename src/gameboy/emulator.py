@@ -20,7 +20,7 @@ CYCLES_PER_FRAME = int(GB_CPU_FREQ / GB_FRAME_RATE)  # ~70224 cycles per frame
 CYCLES_PER_SCANLINE = 456  # 456 cycles per scanline
 
 class GameBoy:
-    def __init__(self, debug=False, batch_mode=False):
+    def __init__(self, debug=False, batch_mode=False, headless=False):
         self.debug = debug
         self.batch_mode = batch_mode  # バッチ処理モード
         self.memory = Memory(debug)
@@ -32,7 +32,7 @@ class GameBoy:
         self.serial.set_debug(debug)
         
         # Initialize PPU with serial reference for overlay
-        self.ppu = PPU(self.memory, self.serial, debug)
+        self.ppu = PPU(self.memory, self.serial, debug, headless=headless)
         self.apu = APU(self.memory, debug)
         self.timer = Timer(self.memory, debug)
         

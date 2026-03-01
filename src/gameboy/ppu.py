@@ -23,10 +23,11 @@ except ImportError:
 
 
 class PPU:
-    def __init__(self, memory, serial=None, debug: cython.bint = False):
+    def __init__(self, memory, serial=None, debug: cython.bint = False, headless: cython.bint = False):
         self.memory = memory
         self.serial = serial  # Reference to serial port for overlay display
         self.debug: cython.bint = debug
+        self.headless: cython.bint = headless
 
         # Configure logging - only to file, not console
         if self.debug:
@@ -88,50 +89,56 @@ class PPU:
         self.frame_count_for_fps = 0
         self.current_fps = 0.0
 
-        # Initialize pygame
-        import os
-        # macOS specific environment variables for better window handling
-        os.environ['SDL_VIDEO_WINDOW_POS'] = '200,200'  # Position window away from dock
-        os.environ['SDL_VIDEO_CENTERED'] = '1'  # Center the window
-        os.environ['SDL_VIDEODRIVER'] = 'cocoa'  # Force Cocoa driver on macOS
-        
-        pygame.init()
-        pygame.display.init()
-        
-        # Create display with proper flags for macOS visibility
-        display_flags = pygame.SHOWN | pygame.RESIZABLE
-        self.screen = pygame.display.set_mode((
-            self.screen_width * self.scale,
-            self.screen_height * self.scale
-        ), display_flags)
-        
-        pygame.display.set_caption("🎮 Game Boy Emulator - CPU Instructions Test")
-        
-        # Set window icon to make it more visible in dock
-        try:
-            icon_surface = pygame.Surface((32, 32))
-            icon_surface.fill((0, 100, 0))  # Dark green
-            pygame.display.set_icon(icon_surface)
-        except:
-            pass
-        
-        # Clear screen to distinctive Game Boy green
-        self.screen.fill((136, 192, 112))  # Light green like Game Boy
-        pygame.display.flip()
-        
-        # Force immediate screen refresh
-        pygame.event.pump()  # Process events to ensure window appears
-        
-        # Initialize font for FPS display and overlay
-        pygame.font.init()
-        self.font = pygame.font.Font(None, 24)  # Font for FPS and serial overlay
+        if not self.headless:
+            # Initialize pygame
+            import os
+            # macOS specific environment variables for better window handling
+            os.environ['SDL_VIDEO_WINDOW_POS'] = '200,200'  # Position window away from dock
+            os.environ['SDL_VIDEO_CENTERED'] = '1'  # Center the window
+            os.environ['SDL_VIDEODRIVER'] = 'cocoa'  # Force Cocoa driver on macOS
+            
+            pygame.init()
+            pygame.display.init()
+            
+            # Create display with proper flags for macOS visibility
+            display_flags = pygame.SHOWN | pygame.RESIZABLE
+            self.screen = pygame.display.set_mode((
+                self.screen_width * self.scale,
+                self.screen_height * self.scale
+            ), display_flags)
+            
+            pygame.display.set_caption("🎮 Game Boy Emulator - CPU Instructions Test")
+            
+            # Set window icon to make it more visible in dock
+            try:
+                icon_surface = pygame.Surface((32, 32))
+                icon_surface.fill((0, 100, 0))  # Dark green
+                pygame.display.set_icon(icon_surface)
+            except:
+                pass
+            
+            # Clear screen to distinctive Game Boy green
+            self.screen.fill((136, 192, 112))  # Light green like Game Boy
+            pygame.display.flip()
+            
+            # Force immediate screen refresh
+            pygame.event.pump()  # Process events to ensure window appears
+            
+            # Initialize font for FPS display and overlay
+            pygame.font.init()
+            self.font = pygame.font.Font(None, 24)  # Font for FPS and serial overlay
 
-        if self.debug:
-            print(f"🎮 Pygame window created: {self.screen_width * self.scale}x{self.screen_height * self.scale}")
-            print("📺 Look for the Game Boy Emulator window - it should be visible now!")
-            print("🎮 Game Boy window created and ready")
+            if self.debug:
+                print(f"🎮 Pygame window created: {self.screen_width * self.scale}x{self.screen_height * self.scale}")
+                print("📺 Look for the Game Boy Emulator window - it should be visible now!")
+                print("🎮 Game Boy window created and ready")
 
-        self.clock = pygame.time.Clock()
+            self.clock = pygame.time.Clock()
+        else:
+            # ヘッドレスモード: pygame不要
+            self.screen = None
+            self.font = None
+            self.clock = None
 
         # Frame rate control
         self.target_fps = 60  # Game Boy native refresh rate  # Game Boy native refresh rate  # Game Boy native refresh rate
@@ -337,6 +344,10 @@ class PPU:
 
     def render_frame(self):
         """Render the complete frame to the screen with adaptive frame skipping"""
+        # ヘッドレスモード: フレームバッファは render_scanline() で更新済み
+        if self.headless:
+            return True
+
         import time
         
         current_time = time.time()
